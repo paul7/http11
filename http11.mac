@@ -1,0 +1,171 @@
+	.title	http11
+	.ident	/X00.20/
+	.mcall	crrg$s,craw$s,sref$s,qiow$s,qio$s
+	.mcall	astx$s,dsar$s,enar$s,srda$s,rcvd$s
+	.mcall	spnd$s,alun$s,map$s
+	.mcall	rdbbk$,wdbbk$
+	.mcall	ordie,die,dielun
+	.mcall	ctxini,ctxuse,ctx2st
+
+tilun	=	1
+tclun	=	2
+tcefn	=	1
+conefn	=	2
+
+clinum	=	16.
+quesiz	=	128.
+blun	=	4
+
+	.asect
+cl.nxt:	.blkw	1
+cl.rid:	.blkw	1
+cl.lun:	.blkw	1
+cl.siz	=	.
+
+	.psect	dir,d,rw
+regsiz	=	200
+rdb::	rdbbk$	regsiz,,,rs.att!rs.red!rs.wrt,170000
+rdbsiz	=	. - rdb
+wdb::	wdbbk$	7,regsiz,0,0,,ws.wrt
+
+	.psect	regdef,d,rw
+clirdb::.blkb	rdbsiz * clinum
+
+	.psect	clidef,d,rw
+topcli::.word	0
+client::.blkb	cl.siz * clinum
+
+	.psect	tmp,d,rw
+rspbuf:	.blkw	15.
+tmpbuf:	.blkw	100
+iosb:	.blkw	2
+
+	.psect	const,d,ro
+rcvtsk:	.rad50	/HWROUT/
+hdr1:	.ascii	|HTTP/1.1 200 OK|<15><12>
+	.ascii	|Content-Type: text/html; charset=utf-8|<15><12>
+	.ascii	|Server: HTTP/11 X00.20|<15><12>
+	.ascii	|Content-Length: |
+hdr1l	=	. - hdr1
+hdr2:	.ascii	<15><12><15><12>
+hdr2l	=	. - hdr2
+
+	.psect	code,i,ro
+start::	alun$s	#tilun,#"TI
+	dielun	#tilun
+	call	inicli
+	crrg$s	#rdb
+	ordie	<Cannot create region>
+	craw$s	#wdb
+	ordie	<Cannot create window>
+	srda$s	#rsprdy
+	ordie	<Cannot set receive AST>
+
+	alun$s	#tclun,#"TC
+	ordie	<Cannot assign listening LUN>
+	dsar$s
+
+	qiow$s	#io.cep,#tclun,#tcefn,,#iosb,,<#1337.>
+	ordie	<Cannot create endpoint>,iosb
+	qiow$s	#io.ras,#tclun,#tcefn,,#iosb,,<#reqrdy>
+	ordie	<Cannot regiser AST>,iosb
+	qiow$s	#io.lsn,#tclun,#tcefn,,#iosb,,<,#clinum.>
+	ordie	<Cannot listen>,iosb
+
+	enar$s
+1$:	spnd$s
+	br	1$
+
+inicli::mov	#clinum,r1
+	mov	#client,r0
+	mov	#blun,r2
+	mov	#clirdb,r3
+1$:	mov	r2,cl.lun(r0)
+	alun$s	r2,#"TC
+	bcs	lunerr
+	mov	r3,cl.rid(r0)
+	mov	topcli,cl.nxt(r0)
+	mov	r0,topcli
+	mov	#rdbsiz,r5
+	mov	#rdb,r4
+2$:	movb	(r4)+,(r3)+
+	sob	r5,2$
+	add	#cl.siz,r0
+	inc	r2
+	sob	r1,1$
+	mov	#clirdb,r0
+	mov	#clinum,r1
+3$:	crrg$s	r0
+	bcs	regerr
+	add	#rdbsiz,r0
+	sob	r1,3$
+	return
+regerr:	die	<Cannot create region>
+lunerr:	die	<Cannot assign LUN>
+	
+getcli::mov	topcli,r1
+	beq	1$
+	mov	cl.nxt(r1),topcli
+1$:	return
+
+relcli::mov	topcli,cl.nxt(r1)
+	mov	r1,topcli
+	return
+
+mapcli::mov	r1,r2
+	add	#cl.rid,r2
+	mov	@r2,r2
+	mov	r.gid(r2),wdb+w.nrid
+	map$s	#wdb
+	ordie	<Cannot map window>
+	return
+
+reqrdy::tst	(sp)+
+	call	getcli
+	tst	r1
+	bne	1$
+	jmp	nocli
+1$:	call	mapcli
+	qiow$s	#io.ast,#tclun,#tcefn
+	qiow$s	#io.cep,cl.lun(r1),#conefn,,#iosb,,<#1337.>
+	ordie	<Cannot create connected endpoint>,iosb
+	qiow$s	#io.acc,cl.lun(r1),#conefn,,#iosb
+	ordie	<Cannot connect>,iosb
+	ctxini	wdb+w.nbas,r1
+	sref$s	#rcvtsk,#wdb,#1
+	ordie	<Cannot send reference>
+	astx$s
+
+nocli::	die	<No client available>
+
+rsprdy::rcvd$s	,#rspbuf
+	bcc	1$
+	cmp	#ie.its,$dsw
+	bne	2$	
+	astx$s
+2$:	jmp	rcverr	
+1$:	mov	rspbuf+4,r1
+	call	mapcli
+	ctxuse	wdb+w.nbas
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,,,<#hdr1,#hdr1l>
+	ordie	<Cannot queue response output>
+	mov	r1,r3
+	ctx2st
+	mov	#tmpbuf,r0
+	clr	r2
+	call	$cbdmg
+	sub	#tmpbuf,r0
+	qio$s	#io.wlb,cl.lun(r3),#conefn,,,,<#tmpbuf,r0>
+	ordie	<Cannot queue response length>
+	qio$s	#io.wlb,cl.lun(r3),#conefn,,,,<#hdr2,#hdr2l>
+	ordie	<Cannot queue response output-2>
+	ctx2st
+	qio$s	#io.wlb,cl.lun(r3),#conefn,,,,<r0,r1>
+	qio$s	#io.cln,cl.lun(r3),#conefn
+	ordie	<Cannot output result>
+	mov	r3,r1
+	call	relcli
+	jmp	rsprdy
+rcverr:	die	<Cannot receive data>
+
+	.end	start

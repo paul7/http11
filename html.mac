@@ -1,0 +1,122 @@
+	.title	html
+	.ident	/X00.20/
+	.mcall	sdat$s
+	.mcall	ordie
+
+	.macro	ctxini	loc,cli
+	mov	cli,-(sp)
+	mov	loc,-(sp)
+	call	ht$ini
+	add	#4,sp
+	.endm
+
+	.macro	ctxuse	loc,ctx=$$$ctx
+	mov	#ctx,-(sp)
+	mov	loc,-(sp)
+	call	ht$use
+	add	#4,sp
+	.endm
+
+	.macro	respnd	str,ctx=$$$ctx
+	mov	ctx,-(sp)
+	mov	str,-(sp)
+	call	ht$res
+	add	#4,sp
+	.endm
+
+	.macro	tag	name,ctx=$$$ctx
+	.save
+	.psect	htmdat,d,ro
+$$$tag	=	.
+	.asciz	!<name>!
+	.restore
+	respnd	#$$$tag,ctx
+	.endm
+
+	.macro	ctx2st	ctx=$$$ctx
+	mov	ctx,r0
+	call	ht$2st
+	.endm
+
+	.macro	ctxrdy	ctx=$$$ctx
+	mov	ctx,-(sp)
+	call	ht$rdy
+	add	#2,sp
+	.endm
+
+	.macro	htmsg	fmt,param,ctx=$$$ctx
+	mov	ctx,-(sp)
+	mov	fmt,-(sp)
+	mov	param,-(sp)
+	call	ht$msg
+	add	#6,sp
+	.endm
+
+	.asect
+.	=	0
+ht.cli::.blkw	1
+ht.siz::.blkw	1
+ht.str::
+ht.max	=	20000		; single APR	
+
+	.psect	htmctx,d,rw
+$$$ctx::.word	0
+
+	.psect	htmcon,d,ro
+http11:	.rad50	/HTTP11/
+
+	.psect	htmcod,i,ro
+ht$res::jsr	r2,$savvr
+	mov	12(sp),r1
+	mov	14(sp),r0
+	add	ht.siz(r0),r0
+	add	#ht.str,r0
+1$:	movb	(r1)+,r2
+	beq	2$
+	movb	r2,(r0)+
+	br	1$
+2$:	mov	14(sp),r1
+	sub	#ht.str,r0
+	sub	r1,r0
+	mov	r0,ht.siz(r1)
+	return
+
+ht$2st::mov	ht.siz(r0),r1
+	add	#ht.str,r0
+	return
+
+ht$use::jsr	r2,$savvr
+;	mov	12(sp),r0
+;	mov	14(sp),r1
+;	mov	r0,@r1
+	mov	12(sp),@14(sp)
+	return
+
+ht$ini::jsr	r2,$savvr
+	mov	12(sp),r0
+	mov	14(sp),r1
+	clr	ht.siz(r0)
+	mov	r1,ht.cli(r0)
+	return
+
+ht$rdy::jsr	r2,$savvr
+	mov	12(sp),r0
+	add	#ht.cli,r0
+	sdat$s	#http11,r0
+	ordie	<HT$RDY: cannot send data>
+	return
+
+ht$msg::jsr	r2,$savvr
+	mov	12(sp),r2
+	mov	14(sp),r1
+	mov	16(sp),r0
+	add	ht.siz(r0),r0
+	add	#ht.str,r0
+	call	$edmsg
+	mov	16(sp),r1
+	sub	#ht.str,r0
+	sub	r1,r0
+	mov	r0,ht.siz(r1)
+	return
+
+	.end
