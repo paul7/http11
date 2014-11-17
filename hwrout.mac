@@ -3,11 +3,12 @@
 	.mcall	qiow$s,exit$s,rref$s,craw$s,setf$s
 	.mcall	astx$s,spnd$s,srra$s,umap$s,dtrg$s
 	.mcall	wdbbk$,rdbbk$
-	.mcall	ordie
+	.mcall	ordie,die
 	.mcall	tag,respnd,ctx2st,ctxuse,ctxrdy,htmsg
 
 	.psect	da,d,ro
 hw::	.asciz	/Hello World from RSX-11M-PLUS!/
+refrnc::.asciz	/Link/
 info::	.asciz	/Visitor #%D. RequestID = %P/
 
 	.psect	db,d,rw
@@ -30,18 +31,27 @@ start::	craw$s	#wdb
 	exit$s
 
 rqst::	rref$s	#wdb
-	ordie	<Cannot receive by reference>
-	mov	wdb+w.nrid,rdb+r.gid
+	bcc	1$
+	cmp	#ie.its,$dsw
+	bne	rcverr
+	astx$s
+1$:	mov	wdb+w.nrid,rdb+r.gid
 	ctxuse	wdb+w.nbas
 	tag	<p>
 	respnd	#hw
 	tag	</p>
+	tag	<p>
+	tag	<a href=/BYE>
+	respnd	#refrnc
+	tag	</a>
+	tag	</p>
 	mov	$$$ctx,r0
 	mov	ht.cli(r0),reqid
-temp::	htmsg	#info,#infdat
+	htmsg	#info,#infdat
 	inc	ctr
 	ctxrdy
 	dtrg$s	#rdb
-	astx$s
+	jmp	rqst
+rcverr:	die	<Cannot receive by reference>
 
 	.end	start

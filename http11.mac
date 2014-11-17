@@ -1,5 +1,5 @@
 	.title	http11
-	.ident	/X00.20/
+	.ident	/X00.30/
 	.mcall	crrg$s,craw$s,sref$s,qiow$s,qio$s
 	.mcall	astx$s,dsar$s,enar$s,srda$s,rcvd$s
 	.mcall	spnd$s,alun$s,map$s
@@ -7,19 +7,54 @@
 	.mcall	ordie,die,dielun
 	.mcall	ctxini,ctxuse,ctx2st
 
+port	=	1337.
+
 tilun	=	1
 tclun	=	2
 tcefn	=	1
+tiefn	=	2
 conefn	=	2
 
-clinum	=	16.
-quesiz	=	128.
+clinum	=	10
+quesiz	=	10
 blun	=	4
+
+sopt	=	21
+tmout	=	30.
+
+	.macro	or503	cli,iosb,?ok
+	bcc	ok
+	.if nb iosb
+	tstb	iosb
+	bpl	ok
+	.endc
+	.if nb cli
+	mov	cli,r1
+	.endc
+	jmp	rsp503
+ok:
+	.endm
+
+	.macro	orclos	cli,iosb,?ok
+	bcc	ok
+	.if nb iosb
+	tstb	iosb
+	bpl	ok
+	.endc
+	.if nb cli
+	mov	cli,r1
+	.endc
+	jmp	close
+ok:
+	.endm
 
 	.asect
 cl.nxt:	.blkw	1
 cl.rid:	.blkw	1
 cl.lun:	.blkw	1
+cl.sta:	.blkw	2
+cl.req:	.blkb	256.
+cl.rsz	=	. - cl.req
 cl.siz	=	.
 
 	.psect	dir,d,rw
@@ -38,17 +73,34 @@ client::.blkb	cl.siz * clinum
 	.psect	tmp,d,rw
 rspbuf:	.blkw	15.
 tmpbuf:	.blkw	100
+tmpbl	=	. - tmpbuf
+reqbuf:	.blkw	100
+reqbl	=	. - reqbuf
 iosb:	.blkw	2
 
-	.psect	const,d,ro
+	.psect	handlr,d,rw
 rcvtsk:	.rad50	/HWROUT/
-hdr1:	.ascii	|HTTP/1.1 200 OK|<15><12>
+hndtbl:	.rad50	/HEL/
+	.rad50	/HWROUT/
+	.rad50	/BYE/
+hndend:	.rad50	/BYROUT/
+
+	.psect	const,d,ro
+reqget:	.asciz	|GET|
+hdr200:	.ascii	|HTTP/1.1 200 OK|<15><12>
 	.ascii	|Content-Type: text/html; charset=utf-8|<15><12>
-	.ascii	|Server: HTTP/11 X00.20|<15><12>
 	.ascii	|Content-Length: |
-hdr1l	=	. - hdr1
-hdr2:	.ascii	<15><12><15><12>
-hdr2l	=	. - hdr2
+hdl200	=	. - hdr200
+hdr400:	.ascii	|HTTP/1.1 400 Bad Request|
+hdl400	=	. - hdr400
+hdr404:	.ascii	|HTTP/1.1 404 Not Found|
+hdl404	=	. - hdr404
+hdr503:	.ascii	|HTTP/1.1 503 Service Unavailable|
+hdl503	=	. - hdr503
+hdrend:	.ascii	<15><12>|Server: HTTP/11 X00.30|<15><12>
+	.ascii	|Connection: close|<15><12>
+	.ascii	<15><12>
+hdlend	=	. - hdrend
 
 	.psect	code,i,ro
 start::	alun$s	#tilun,#"TI
@@ -65,9 +117,9 @@ start::	alun$s	#tilun,#"TI
 	ordie	<Cannot assign listening LUN>
 	dsar$s
 
-	qiow$s	#io.cep,#tclun,#tcefn,,#iosb,,<#1337.>
+	qiow$s	#io.cep,#tclun,#tcefn,,#iosb,,<#port>
 	ordie	<Cannot create endpoint>,iosb
-	qiow$s	#io.ras,#tclun,#tcefn,,#iosb,,<#reqrdy>
+	qiow$s	#io.ras,#tclun,#tcefn,,#iosb,,<#conrdy>
 	ordie	<Cannot regiser AST>,iosb
 	qiow$s	#io.lsn,#tclun,#tcefn,,#iosb,,<,#clinum.>
 	ordie	<Cannot listen>,iosb
@@ -117,23 +169,50 @@ mapcli::mov	r1,r2
 	mov	@r2,r2
 	mov	r.gid(r2),wdb+w.nrid
 	map$s	#wdb
-	ordie	<Cannot map window>
+	orclos
 	return
 
-reqrdy::tst	(sp)+
+conrdy::tst	(sp)+
 	call	getcli
 	tst	r1
 	bne	1$
-	jmp	nocli
-1$:	call	mapcli
-	qiow$s	#io.ast,#tclun,#tcefn
-	qiow$s	#io.cep,cl.lun(r1),#conefn,,#iosb,,<#1337.>
-	ordie	<Cannot create connected endpoint>,iosb
-	qiow$s	#io.acc,cl.lun(r1),#conefn,,#iosb
-	ordie	<Cannot connect>,iosb
+	jmp	rsp503
+1$:	qiow$s	#io.ast,#tclun,#tcefn
+	qiow$s	#io.cep,cl.lun(r1),#conefn,,#iosb,,<#port>
+	orclos	,iosb
+	qiow$s	#io.acc,cl.lun(r1),#conefn,,#iosb,,<0,#sopt,#tmout>
+	orclos	,iosb
+	mov	r1,r2
+	add	#cl.sta,r2
+	mov	r1,r3
+	add	#cl.req,r3
+	qio$s	#io.rlb,cl.lun(r1),#conefn,,r2,#reqrdy,<r3,#cl.rsz>
+	orclos
+	astx$s
+
+reqrdy::mov	(sp)+,r1
+	mov	r1,r2
+	sub	#cl.sta,r1
+	orclos	r1,r2
+	mov	r1,r3
+	add	#cl.req,r1
+	mov	#reqget,r0
+	mov	#' ,r2
+	call	tokcmp
+	bcc	1$
+2$:	mov	r3,r1
+	jmp	rsp400
+1$:	cmpb	#'/,(r1)+
+	bne	2$
+	mov	r1,r0
+	mov	r3,r1
+	call	fndhnd
+	bcc	3$
+	jmp	rsp404
+3$:	call	mapcli
 	ctxini	wdb+w.nbas,r1
-	sref$s	#rcvtsk,#wdb,#1
-	ordie	<Cannot send reference>
+	sref$s	r0,#wdb,#1
+	or503
 	astx$s
 
 nocli::	die	<No client available>
@@ -146,26 +225,94 @@ rsprdy::rcvd$s	,#rspbuf
 2$:	jmp	rcverr	
 1$:	mov	rspbuf+4,r1
 	call	mapcli
+	mov	r1,r4
+	add	#cl.sta,r4
 	ctxuse	wdb+w.nbas
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,,,<#hdr1,#hdr1l>
-	ordie	<Cannot queue response output>
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr200,#hdl200>
+	orclos
 	mov	r1,r3
 	ctx2st
 	mov	#tmpbuf,r0
 	clr	r2
 	call	$cbdmg
 	sub	#tmpbuf,r0
-	qio$s	#io.wlb,cl.lun(r3),#conefn,,,,<#tmpbuf,r0>
-	ordie	<Cannot queue response length>
-	qio$s	#io.wlb,cl.lun(r3),#conefn,,,,<#hdr2,#hdr2l>
-	ordie	<Cannot queue response output-2>
+	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspast,<#tmpbuf,r0>
+	orclos
+	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspast,<#hdrend,#hdlend>
+	orclos
 	ctx2st
-	qio$s	#io.wlb,cl.lun(r3),#conefn,,,,<r0,r1>
-	qio$s	#io.cln,cl.lun(r3),#conefn
-	ordie	<Cannot output result>
-	mov	r3,r1
-	call	relcli
+	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspdon,<r0,r1>
+	orclos
 	jmp	rsprdy
+
+rsp400::mov	r1,r4
+	add	#cl.sta,r4
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr400,#hdl400>
+	orclos
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspdon,<#hdrend,#hdlend>
+	orclos
+	astx$s
+
+rsp404::mov	r1,r4
+	add	#cl.sta,r4
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr404,#hdl404>
+	orclos
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspdon,<#hdrend,#hdlend>
+	orclos
+	astx$s
+
+rsp503::mov	r1,r4
+	add	#cl.sta,r4
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr503,#hdl503>
+	orclos
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspdon,<#hdrend,#hdlend>
+	orclos
+	astx$s
+
+rspdon::mov	(sp)+,r1
+	mov	r1,r2
+	sub	#cl.sta,r1
+	orclos	r1,r2
+	jmp	close
 rcverr:	die	<Cannot receive data>
+
+close::	qiow$s	#io.cln,cl.lun(r1),#conefn
+	call	relcli
+	astx$s
+
+rspast::mov	(sp)+,r1
+	mov	r1,r2
+	sub	#cl.sta,r1
+	orclos	r1,r2
+	astx$s
+
+tokcmp::tstb	@r0
+	beq	patend
+	cmpb	(r0)+,(r1)+
+	beq	tokcmp
+neq:	sec
+	return
+patend:	cmpb	r2,@r1
+	bne	neq
+	inc	r1
+	clc
+	return
+
+fndhnd::jsr	r2,$savvr
+	clr	r1
+	call	$cat5
+	bcs	notfnd
+	mov	#hndtbl,r0
+1$:	cmp	(r0)+,r1
+	beq	found
+	cmp	r0,#hndend
+	bge	notfnd
+	cmp	(r0)+,(r0)+
+	br	1$
+found:	mov	r0,2(sp)
+	clc
+	return
+notfnd:	sec
+	return
 
 	.end	start
