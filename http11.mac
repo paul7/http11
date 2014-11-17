@@ -22,7 +22,31 @@ blun	=	4
 sopt	=	21
 tmout	=	30.
 
-	.macro	or503	cli,iosb,?ok
+	.macro	deferr	code,desc
+	.save
+	.psect	errors,d,ro
+hdr'code:
+	.ascii	|HTTP/1.1 code desc|<15><12>
+	.ascii	|Content-Length: 3|
+hdl'code=	. - hdr'code
+msg'code:
+	.ascii	|code|
+msl'code=	. - msg'code
+
+	.psect	errcod,i,ro
+rsp'code::
+	mov	r1,r4
+	add	#cl.sta,r4
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr'code,#hdl'code>
+	orclos
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdrend,#hdlend>
+	orclos
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspdon,<#msg'code,#msl'code>
+	orclos
+	astx$s
+	.restore
+
+	.macro	or'code	cli,iosb,?ok
 	bcc	ok
 	.if nb iosb
 	tstb	iosb
@@ -31,8 +55,9 @@ tmout	=	30.
 	.if nb cli
 	mov	cli,r1
 	.endc
-	jmp	rsp503
+	jmp	rsp'code
 ok:
+	.endm
 	.endm
 
 	.macro	orclos	cli,iosb,?ok
@@ -47,6 +72,11 @@ ok:
 	jmp	close
 ok:
 	.endm
+
+	deferr	400,<Bad Request>
+	deferr	404,<Not Found>
+	deferr	500,<Internal Server Error>
+	deferr	503,<Service Unavailable>
 
 	.asect
 cl.nxt:	.blkw	1
@@ -95,25 +125,10 @@ hdr200:	.ascii	|HTTP/1.1 200 OK|<15><12>
 	.ascii	|Content-Type: text/html; charset=utf-8|<15><12>
 	.ascii	|Content-Length: |
 hdl200	=	. - hdr200
-hdr400:	.ascii	|HTTP/1.1 400 Bad Request|<15><12>
-	.ascii	|Content-Length: 3|
-hdl400	=	. - hdr400
-hdr404:	.ascii	|HTTP/1.1 404 Not Found|<15><12>
-	.ascii	|Content-Length: 3|
-hdl404	=	. - hdr404
-hdr503:	.ascii	|HTTP/1.1 503 Service Unavailable|<15><12>
-	.ascii	|Content-Length: 3|
-hdl503	=	. - hdr503
 hdrend:	.ascii	<15><12>|Server: HTTP/11 X00.50|<15><12>
 	.ascii	|Connection: close|<15><12>
 	.ascii	<15><12>
 hdlend	=	. - hdrend
-msg400:	.ascii	|400|
-msl400	=	. - msg400
-msg404:	.ascii	|404|
-msl404	=	. - msg404
-msg503:	.ascii	|503|
-msl503	=	. - msg503
 
 	.psect	code,i,ro
 start::	alun$s	#tilun,#"TI
@@ -257,36 +272,6 @@ rsprdy::rcvd$s	,#rspbuf
 	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspdon,<r0,r1>
 	orclos
 	jmp	rsprdy
-
-rsp400::mov	r1,r4
-	add	#cl.sta,r4
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr400,#hdl400>
-	orclos
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdrend,#hdlend>
-	orclos
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspdon,<#msg400,#msl400>
-	orclos
-	astx$s
-
-rsp404::mov	r1,r4
-	add	#cl.sta,r4
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr404,#hdl404>
-	orclos
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdrend,#hdlend>
-	orclos
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspdon,<#msg404,#msl404>
-	orclos
-	astx$s
-
-rsp503::mov	r1,r4
-	add	#cl.sta,r4
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr503,#hdl503>
-	orclos
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdrend,#hdlend>
-	orclos
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspdon,<#msg503,#msl503>
-	orclos
-	astx$s
 
 rspdon::mov	(sp)+,r1
 	mov	r1,r2
