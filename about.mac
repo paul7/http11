@@ -1,0 +1,28 @@
+	.title	about
+	.ident	/X00.50/
+
+	.mcall	htmast,htmbgn
+	.mcall	respnd,htmsg
+
+	.psect	html,d,rw
+about::	.ascii	|<h1>Welcome to HTTP/11</h1>|
+	.ascii	|<div>This is a web server running on a PDP-11. |
+	.ascii	|It is written in MACRO-11 by Paul A. Anokhin.</div>|
+	.ascii	|<div>Source is <a href=https://github.com/paul7/http11>|
+	.asciz	|here</a>.</div>|
+
+visitr::.asciz	|<div>You're a visitor #%D since the last restart.</div>|
+
+	.even
+visnum::.word	0
+
+	.psect	code,i,ro
+start::	htmast	#req
+
+req::	htmbgn
+	inc	visnum
+	respnd	#about
+	htmsg	#visitr,#visnum
+	return
+
+	.end	start

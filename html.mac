@@ -5,6 +5,9 @@
 	.mcall	rdbbk$,wdbbk$
 	.mcall	ordie,die
 
+;; Initialize a HTML context.
+;; Client buffer is at CLI.
+;; Place context at LOC.
 	.macro	ctxini	loc,cli
 	mov	cli,-(sp)
 	mov	loc,-(sp)
@@ -12,6 +15,9 @@
 	add	#4,sp
 	.endm
 
+;; Begin using existing HTML context.
+;; Context is at LOC.
+;; Save default context addr at CTX.
 	.macro	ctxuse	loc,ctx=$$$ctx
 	mov	#ctx,-(sp)
 	mov	loc,-(sp)
@@ -19,6 +25,8 @@
 	add	#4,sp
 	.endm
 
+;; Respond with a string.
+;; STR points to ASCIZ string
 	.macro	respnd	str,ctx=$$$ctx
 	mov	ctx,-(sp)
 	mov	str,-(sp)
@@ -26,6 +34,8 @@
 	add	#4,sp
 	.endm
 
+;; Respond with a tag
+;; NAME is a literal HTML tag.
 	.macro	tag	name,ctx=$$$ctx
 	.save
 	.psect	htmdat,d,ro
@@ -35,17 +45,26 @@ $$$tag	=	.
 	respnd	#$$$tag,ctx
 	.endm
 
+;; Get the response string and its length
+;; from context.
+;; Returns addr of string in R0
+;; and length in R1
 	.macro	ctx2st	ctx=$$$ctx
 	mov	ctx,r0
 	call	ht$2st
 	.endm
 
+;; Response is ready. Inform the server.
 	.macro	ctxrdy	ctx=$$$ctx
 	mov	ctx,-(sp)
 	call	ht$rdy
 	add	#2,sp
 	.endm
 
+;; Wrapper around $EDMSG.
+;; Format is at FMT.
+;; Parameter list is at PARAM.
+;; Outputs to the context.
 	.macro	htmsg	fmt,param,ctx=$$$ctx
 	mov	ctx,-(sp)
 	mov	fmt,-(sp)
@@ -54,107 +73,108 @@ $$$tag	=	.
 	add	#6,sp
 	.endm
 
+;; Prepare to receive requests from the server.
+;; Should be the last statement in the initialization.
+;; AST routine is at AST
 	.macro	htmast	ast
 	mov	ast,-(sp)
 	jmp	ht$ast
 	.endm
 
+;; Prepare to process a request.
+;; Should be the first statement in the AST routine.
+;; Actual processing should follow.
 	.macro	htmbgn	?out
 	mov	#out,-(sp)
 	jmp	ht$bgn
 out:
 	.endm
 
+;; Offsets in context definition.
 	.asect
 .	=	0
-ht.cli::.blkw	1
-ht.siz::.blkw	1
-ht.str::
-ht.max	=	20000		; single APR	
+ht.cli::.blkw	1		; Client descriptor in the server.
+ht.siz::.blkw	1		; Response length.	
+ht.str::			; Response string.
+ht.max	=	20000		; Single APR.	
 
 	.psect	htmctx,d,rw
-$$$ctx::.word	0
-wdb:	wdbbk$	7,200
-rdb:	rdbbk$
-
-	.psect	htmcon,d,ro
-http11:	.rad50	/HTTP11/
+$$$ctx::.word	0		; Current context address.	
+wdb:	wdbbk$	7,200,,,,,rcvbuf; Window description for context.	
+rdb:	rdbbk$			; Region description for context.	
+rcvbuf:	.blkw	10.		; Receive buffer.
 
 	.psect	htmcod,i,ro
-ht$res::jsr	r2,$savvr
-	mov	12(sp),r1
-	mov	14(sp),r0
-	add	ht.siz(r0),r0
-	add	#ht.str,r0
-1$:	movb	(r1)+,r2
+ht$res::jsr	r2,$savvr	; Save R0..R2.	
+	mov	12(sp),r1	; String => R1.	
+	mov	14(sp),r0	; Context => R0.	
+	add	ht.siz(r0),r0	; R0 now points to the first	
+	add	#ht.str,r0	; unused byte in the context.	
+1$:	movb	(r1)+,r2	; Copy string to the context.	
 	beq	2$
 	movb	r2,(r0)+
 	br	1$
-2$:	mov	14(sp),r1
+2$:	mov	14(sp),r1	; Context => R1.
 	sub	#ht.str,r0
-	sub	r1,r0
-	mov	r0,ht.siz(r1)
+	sub	r1,r0		; Response length => R0.	
+	mov	r0,ht.siz(r1)	; Save it.	
 	return
 
-ht$2st::mov	ht.siz(r0),r1
-	add	#ht.str,r0
+ht$2st::mov	ht.siz(r0),r1	; Response size => R1.	
+	add	#ht.str,r0	; Response => R0.	
 	return
 
 ht$use::jsr	r2,$savvr
-;	mov	12(sp),r0
-;	mov	14(sp),r1
-;	mov	r0,@r1
-	mov	12(sp),@14(sp)
-	return
+	mov	12(sp),@14(sp)	; Save context address to	
+	return			; the specified location.	
 
 ht$ini::jsr	r2,$savvr
-	mov	12(sp),r0
-	mov	14(sp),r1
-	clr	ht.siz(r0)
-	mov	r1,ht.cli(r0)
+	mov	12(sp),r0	; Context => R0.	
+	clr	ht.siz(r0)	; Response size is 0.	
+	mov	14(sp),ht.cli(r0)	; Save client descriptor.	
 	return
 
 ht$rdy::jsr	r2,$savvr
-	mov	12(sp),r0
-	add	#ht.cli,r0
-	sdat$s	#http11,r0
+	mov	12(sp),r0	; Context => R0.	
+	add	#ht.cli,r0	; Client descriptor => R0.	
+	sdat$s	#rcvbuf,r0	; Inform server that client at R0 is ready.	
 	ordie	<HT$RDY: cannot send data>
 	return
 
 ht$msg::jsr	r2,$savvr
-	mov	12(sp),r2
-	mov	14(sp),r1
-	mov	16(sp),r0
+	mov	12(sp),r2	; Parameter block => R2.	
+	mov	14(sp),r1	; Format => R1.	
+	mov	16(sp),r0	; Context => R0.	
 	add	ht.siz(r0),r0
-	add	#ht.str,r0
-	call	$edmsg
-	mov	16(sp),r1
+	add	#ht.str,r0	; First unused byte in context => R0.	
+	call	$edmsg		; Construct response.	
+	mov	16(sp),r1	; Context => R0	
 	sub	#ht.str,r0
-	sub	r1,r0
-	mov	r0,ht.siz(r1)
+	sub	r1,r0		; New response length => R0.	
+	mov	r0,ht.siz(r1)	; Save it.	
 	return
 
-ht$bgn::rref$s	#wdb
-	bcc	1$
-	cmp	#ie.its,$dsw
-	bne	rcverr
-	tst	(sp)+
+ht$bgn::rref$s	#wdb		; Receive a reference to a region.	
+	bcc	1$		; Success?	
+	cmp	#ie.its,$dsw	; No. Emtpy queue?	
+	bne	rcverr		;  No. Bad.	
+	tst	(sp)+		;  Yes. Done	
 	astx$s
-1$:	mov	wdb+w.nrid,rdb+r.gid
-	ctxuse	wdb+w.nbas
-	mov	@sp,r0
-	call	@r0
-	ctxrdy
-	dtrg$s	#rdb
-	br	ht$bgn
+1$:	mov	wdb+w.nrid,rdb+r.gid	; Save RegionID.	
+	ctxuse	wdb+w.nbas	; Output to the received region.	
+	mov	@sp,r0		; Actual handler addr => R0.	
+	call	@r0		; Build a response.	
+	ctxrdy			; Done.	
+	dtrg$s	#rdb		; Detach the region.	
+	br	ht$bgn		; Is there any work left?	
 rcverr:	die	<HT$BGN: Cannot receive by reference>
 
-ht$ast::craw$s	#wdb
+ht$ast::craw$s	#wdb		; Create an address window	
 	ordie	<HT$AST: Cannot create window>
-	bis	#ws.map,wdb+w.nsts
-	srra$s	(sp)+
+	bis	#ws.map,wdb+w.nsts	; Map on RREF.	
+	srra$s	(sp)+		; Handler was in stack.	
 	ordie	<HT$AST: Cannot set AST>
-1$:	spnd$s
+1$:	spnd$s			; Wait for requests.	
 	br	1$
 
 	.end
