@@ -1,9 +1,7 @@
 	.title	hwrout
-	.ident	/X00.20/
-	.mcall	qiow$s,exit$s,rref$s,craw$s,setf$s
-	.mcall	astx$s,spnd$s,srra$s,umap$s,dtrg$s
-	.mcall	wdbbk$,rdbbk$
+	.ident	/X00.50/
 	.mcall	ordie,die
+	.mcall	htmast,htmbgn
 	.mcall	tag,respnd,ctx2st,ctxuse,ctxrdy,htmsg
 
 	.psect	da,d,ro
@@ -11,32 +9,15 @@ hw::	.asciz	/Hello World from RSX-11M-PLUS!/
 refrnc::.asciz	/Link/
 info::	.asciz	/Visitor #%D. RequestID = %P/
 
-	.psect	db,d,rw
-wdb:	wdbbk$	7,200
-rdb:	rdbbk$
-
 	.psect	ctr,d,rw
 infdat::
 ctr::	.word	0
 reqid::	.word	0
 
 	.psect	main,i,ro
-start::	craw$s	#wdb
-	ordie	<Cannot create window>
-	bis	#ws.map,wdb+w.nsts
-	srra$s	#rqst
-	ordie	<Cannot set AST>
-	spnd$s
-	ordie	<Cannot suspend>
-	exit$s
+start::	htmast	#rqst
 
-rqst::	rref$s	#wdb
-	bcc	1$
-	cmp	#ie.its,$dsw
-	bne	rcverr
-	astx$s
-1$:	mov	wdb+w.nrid,rdb+r.gid
-	ctxuse	wdb+w.nbas
+rqst::	htmbgn
 	tag	<p>
 	respnd	#hw
 	tag	</p>
@@ -49,9 +30,6 @@ rqst::	rref$s	#wdb
 	mov	ht.cli(r0),reqid
 	htmsg	#info,#infdat
 	inc	ctr
-	ctxrdy
-	dtrg$s	#rdb
-	jmp	rqst
-rcverr:	die	<Cannot receive by reference>
+	return
 
 	.end	start

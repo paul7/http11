@@ -1,7 +1,9 @@
 	.title	html
-	.ident	/X00.20/
-	.mcall	sdat$s
-	.mcall	ordie
+	.ident	/X00.50/
+	.mcall	qiow$s,exit$s,rref$s,craw$s,sdat$s
+	.mcall	astx$s,spnd$s,srra$s,umap$s,dtrg$s
+	.mcall	rdbbk$,wdbbk$
+	.mcall	ordie,die
 
 	.macro	ctxini	loc,cli
 	mov	cli,-(sp)
@@ -52,6 +54,17 @@ $$$tag	=	.
 	add	#6,sp
 	.endm
 
+	.macro	htmast	ast
+	mov	ast,-(sp)
+	jmp	ht$ast
+	.endm
+
+	.macro	htmbgn	?out
+	mov	#out,-(sp)
+	jmp	ht$bgn
+out:
+	.endm
+
 	.asect
 .	=	0
 ht.cli::.blkw	1
@@ -61,6 +74,8 @@ ht.max	=	20000		; single APR
 
 	.psect	htmctx,d,rw
 $$$ctx::.word	0
+wdb:	wdbbk$	7,200
+rdb:	rdbbk$
 
 	.psect	htmcon,d,ro
 http11:	.rad50	/HTTP11/
@@ -118,5 +133,28 @@ ht$msg::jsr	r2,$savvr
 	sub	r1,r0
 	mov	r0,ht.siz(r1)
 	return
+
+ht$bgn::rref$s	#wdb
+	bcc	1$
+	cmp	#ie.its,$dsw
+	bne	rcverr
+	tst	(sp)+
+	astx$s
+1$:	mov	wdb+w.nrid,rdb+r.gid
+	ctxuse	wdb+w.nbas
+	mov	@sp,r0
+	call	@r0
+	ctxrdy
+	dtrg$s	#rdb
+	br	ht$bgn
+rcverr:	die	<HT$BGN: Cannot receive by reference>
+
+ht$ast::craw$s	#wdb
+	ordie	<HT$AST: Cannot create window>
+	bis	#ws.map,wdb+w.nsts
+	srra$s	(sp)+
+	ordie	<HT$AST: Cannot set AST>
+1$:	spnd$s
+	br	1$
 
 	.end
