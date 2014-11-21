@@ -229,6 +229,8 @@ ht$arg::save05
 	movb	r2,(r0)+	; Save character.
 	br	8$		; Repeat.	
 9$:	clrb	@r0		; Terminate string.	
+	mov	sarg(sp),r0	; Buffer => R0.
+	call	urldec		; URL decode result.
 	clc			; Success.
 	return
 	
@@ -275,6 +277,47 @@ fndchr::save02
 	clc
 	return
 2$:	sec
+	return
+
+;+
+; URL decode in place.
+; R0 points at strings.
+;-
+urldec::save05
+	mov	r0,r1		; Input ptr => R0, output ptr => R1.
+1$:	movb	(r0)+,r2	; Read next char.
+	beq	10$		; End of string?
+	cmpb	#'%,r2		; URL-encoded character?
+	beq	2$		; Yes, decode it.
+	movb	r2,(r1)+	; No, leave it alone.	
+	br	1$		; Repeat.	
+2$:	mov	#2,r3		; Digit counter => R3.
+	clr	r4		; Decoded char => R4.
+3$:	ash	#4,r4		; Next result digit.
+	movb	(r0)+,r2	; Next digit => R2.
+	cmpb	r2,#'0
+	blt	9$
+	cmpb	r2,#'9
+	bgt	4$
+	sub	#'0,r2
+	br	8$
+4$:	cmpb	r2,#'A
+	blt	9$
+	cmpb	r2,#'F
+	bgt	5$
+	sub	#'A,r2
+	br	7$
+5$:	cmpb	r2,#'a
+	blt	9$
+	cmpb	r2,#'f
+	bgt	9$
+	sub	#'a,r2
+7$:	add	#10.,r2
+8$:	add	r2,r4
+	sob	r3,3$
+	movb	r4,(r1)+
+9$:	br	1$
+10$:	clrb	@r1		; Terminate string.
 	return
 
 	.end
