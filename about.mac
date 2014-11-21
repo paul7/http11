@@ -12,9 +12,12 @@ about::	.ascii	|<h1>Welcome to HTTP/11</h1>|
 	.asciz	|here</a>.</div>|
 
 visitr::.asciz	|<div>You're a visitor #%D since the last restart.</div>|
+url::	.asciz	|<div>URL was: %I</div><div>Length = %D</div>|
 
 	.even
 visnum::.word	0
+urladr::.word	0
+urllen::.word	0
 
 	.psect	code,i,ro
 start::	htmast	#req
@@ -23,6 +26,14 @@ req::	htmbgn
 	inc	visnum
 	respnd	#about
 	htmsg	#visitr,#visnum
+	mov	$$$ctx,r0
+	add	#ht.url,r0
+	mov	r0,urladr
+1$:	tstb	(r0)+
+	bne	1$
+	sub	urladr,r0
+	mov	r0,urllen
+	htmsg	#url,#urladr
 	return
 
 	.end	start

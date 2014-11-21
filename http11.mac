@@ -6,6 +6,9 @@
 	.mcall	rdbbk$,wdbbk$
 	.mcall	ordie,die,dielun
 	.mcall	ctxini,ctxuse,ctx2st
+	.mcall	save02,save05
+
+	.nlist	me
 
 port	=	1337.
 
@@ -22,15 +25,17 @@ blun	=	4
 sopt	=	21
 tmout	=	30.
 
+	.sbttl	Error Handling Macros
+
 	.macro	deferr	code,desc
 	.save
 	.psect	errors,d,ro
 hdr'code:
 	.ascii	|HTTP/1.1 code desc|<15><12>
-	.ascii	|Content-Length: 3|
+	.ascii	|Content-Length: |
 hdl'code=	. - hdr'code
 msg'code:
-	.ascii	|code|
+	.ascii	|code: desc|
 msl'code=	. - msg'code
 
 	.psect	errcod,i,ro
@@ -38,6 +43,15 @@ rsp'code::
 	mov	r1,r4
 	add	#cl.sta,r4
 	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr'code,#hdl'code>
+	orclos
+	mov	r1,r3
+	mov	#tmpbuf,r0
+	mov	#msl'code,r1
+	clr	r2
+	call	$cbdmg
+	sub	#tmpbuf,r0
+	mov	r3,r1
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#tmpbuf,r0>
 	orclos
 	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdrend,#hdlend>
 	orclos
@@ -57,8 +71,8 @@ rsp'code::
 	.endc
 	jmp	rsp'code
 ok:
-	.endm
-	.endm
+	.endm	or'code
+	.endm	deferr	
 
 	.macro	orclos	cli,iosb,?ok
 	bcc	ok
@@ -77,6 +91,8 @@ ok:
 	deferr	404,<Not Found>
 	deferr	500,<Internal Server Error>
 	deferr	503,<Service Unavailable>
+
+	.sbttl	Data Definition
 
 	.asect
 cl.nxt:	.blkw	1
@@ -114,6 +130,8 @@ hndtbl:	.word	0
 	.rad50	/ABOUT/
 	.rad50	/ABO/
 	.rad50	/ABOUT/
+	.rad50	/QAR/
+	.rad50	/QARG/
 	.rad50	/HEL/
 	.rad50	/HWROUT/
 	.rad50	/BYE/
@@ -129,6 +147,8 @@ hdrend:	.ascii	<15><12>|Server: HTTP/11 X00.50|<15><12>
 	.ascii	|Connection: close|<15><12>
 	.ascii	<15><12>
 hdlend	=	. - hdrend
+
+	.sbttl	Initialization
 
 	.psect	code,i,ro
 start::	alun$s	#tilun,#"TI
@@ -156,7 +176,143 @@ start::	alun$s	#tilun,#"TI
 1$:	spnd$s
 	br	1$
 
-inicli::mov	#clinum,r1
+	.sbttl	AST Routines
+
+conrdy::tst	(sp)+
+	qiow$s	#io.ast,#tclun,#tcefn
+	call	getcli
+	tst	r1
+	bne	1$
+	qiow$s	#io.rej,#tclun,#tcefn
+	br	2$
+1$:	qiow$s	#io.cep,cl.lun(r1),#conefn,,#iosb,,<#port>
+	orclos	,iosb
+	qiow$s	#io.acc,cl.lun(r1),#conefn,,#iosb,,<0,#sopt,#tmout>
+	orclos	,iosb
+	mov	r1,r2
+	add	#cl.sta,r2
+	mov	r1,r3
+	add	#cl.req,r3
+	qio$s	#io.rlb,cl.lun(r1),#conefn,,r2,#reqrdy,<r3,#cl.rsz>
+	orclos
+2$:	astx$s
+
+reqrdy::mov	(sp)+,r1
+	mov	r1,r2
+	sub	#cl.sta,r1
+	orclos	r1,r2
+	mov	2(r2),r2	; Number of bytes read => R2.
+	mov	r1,r3
+	add	#cl.req,r1
+	add	r1,r2		;  End of request => R2.
+	clrb	@r2
+	mov	#reqget,r0
+	mov	#' ,r2
+	call	tokcmp
+	bcs	1$
+	cmpb	#'/,(r1)+
+	beq	2$
+1$:	mov	r3,r1
+	jmp	rsp400
+2$:	mov	r1,r0
+	call	fndhnd
+	bcc	3$
+	mov	r3,r1
+	jmp	rsp404
+3$:	mov	r1,r2
+	mov	r3,r1
+	call	mapcli
+	ctxini	wdb+w.nbas,r1,r2
+temp::	sref$s	r0,#wdb,#1
+	or503
+	astx$s
+
+rsprdy::rcvd$s	,#rspbuf
+	bcc	1$
+	cmp	#ie.its,$dsw
+	bne	2$	
+	astx$s
+2$:	jmp	rcverr	
+1$:	mov	rspbuf+4,r1
+	call	mapcli
+	mov	r1,r4
+	add	#cl.sta,r4
+	ctxuse	wdb+w.nbas
+	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr200,#hdl200>
+	orclos
+	mov	r1,r3
+	ctx2st
+	mov	#tmpbuf,r0
+	clr	r2
+	call	$cbdmg
+	sub	#tmpbuf,r0
+	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspast,<#tmpbuf,r0>
+	orclos	r3	
+	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspast,<#hdrend,#hdlend>
+	orclos	r3	
+	ctx2st
+	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspdon,<r0,r1>
+	orclos	r3	
+	jmp	rsprdy
+
+rspdon::mov	(sp)+,r1
+	mov	r1,r2
+	sub	#cl.sta,r1
+	orclos	r1,r2
+	jmp	close
+rcverr:	die	<Cannot receive data>
+
+close::	qiow$s	#io.cln,cl.lun(r1),#conefn
+	call	relcli
+	astx$s
+
+rspast::mov	(sp)+,r1
+	mov	r1,r2
+	sub	#cl.sta,r1
+	orclos	r1,r2
+	astx$s
+
+	.sbttl	Utilities
+
+;+
+; Find handler for URL.
+; R1 points at URL.
+; Handler table is at HNDTBL.
+; Its last entry is at HNDEND.
+; Handler task name is returned in R0.
+; Carry bit is cleared on success.
+;-
+fndhnd::save02
+	clr	r1
+	call	$cat5
+	bcc	4$
+	cmpb	#' ,r2
+	bne	3$
+4$:	mov	#hndtbl,r0
+1$:	cmp	(r0)+,r1
+	beq	2$
+	cmp	r0,#hndend
+	bge	3$
+	cmp	(r0)+,(r0)+
+	br	1$
+2$:	mov	r0,s0(sp)
+	clc
+	return
+3$:	sec
+	return
+
+	.sbttl	Client Descriptor Utilities
+
+;+
+; Initialize client descriptors.
+; Client descriptor area is at CLIENT.
+; CLINUM is a number of descriptors to initialize.
+; BLUN is the lowest unused LUN.
+; Region definitions are at CLIRDB.
+; Descriptors are a linked list, TOPCLI points at its head.
+;-
+inicli::save05
+	mov	#clinum,r1
 	mov	#client,r0
 	mov	#blun,r2
 	mov	#clirdb,r3
@@ -182,143 +338,36 @@ inicli::mov	#clinum,r1
 	return
 regerr:	die	<Cannot create region>
 lunerr:	die	<Cannot assign LUN>
-	
+
+;+
+; Pop a client descriptor from the pool.
+; Return the descriptor in R1.
+; R1 = 0 if pool is empty.
+;-
 getcli::mov	topcli,r1
 	beq	1$
 	mov	cl.nxt(r1),topcli
 1$:	return
 
+;+
+; Push a client descriptor to the pool.
+; Descriptor is in R1.
+;-
 relcli::mov	topcli,cl.nxt(r1)
 	mov	r1,topcli
 	return
 
-mapcli::mov	r1,r2
+;+
+; Map address window to the client's region.
+; Client descriptor is in R1.
+;-
+mapcli::save02
+	mov	r1,r2
 	add	#cl.rid,r2
 	mov	@r2,r2
 	mov	r.gid(r2),wdb+w.nrid
 	map$s	#wdb
 	orclos
-	return
-
-conrdy::tst	(sp)+
-	call	getcli
-	tst	r1
-	bne	1$
-	jmp	rsp503
-1$:	qiow$s	#io.ast,#tclun,#tcefn
-	qiow$s	#io.cep,cl.lun(r1),#conefn,,#iosb,,<#port>
-	orclos	,iosb
-	qiow$s	#io.acc,cl.lun(r1),#conefn,,#iosb,,<0,#sopt,#tmout>
-	orclos	,iosb
-	mov	r1,r2
-	add	#cl.sta,r2
-	mov	r1,r3
-	add	#cl.req,r3
-	qio$s	#io.rlb,cl.lun(r1),#conefn,,r2,#reqrdy,<r3,#cl.rsz>
-	orclos
-	astx$s
-
-reqrdy::mov	(sp)+,r1
-	mov	r1,r2
-	sub	#cl.sta,r1
-	orclos	r1,r2
-	mov	r1,r3
-	add	#cl.req,r1
-	mov	#reqget,r0
-	mov	#' ,r2
-	call	tokcmp
-	bcc	1$
-2$:	mov	r3,r1
-	jmp	rsp400
-1$:	cmpb	#'/,(r1)+
-	bne	2$
-	mov	r1,r0
-	mov	r3,r1
-	call	fndhnd
-	bcc	3$
-	jmp	rsp404
-3$:	call	mapcli
-	ctxini	wdb+w.nbas,r1
-	sref$s	r0,#wdb,#1
-	or503
-	astx$s
-
-nocli::	die	<No client available>
-
-rsprdy::rcvd$s	,#rspbuf
-	bcc	1$
-	cmp	#ie.its,$dsw
-	bne	2$	
-	astx$s
-2$:	jmp	rcverr	
-1$:	mov	rspbuf+4,r1
-	call	mapcli
-	mov	r1,r4
-	add	#cl.sta,r4
-	ctxuse	wdb+w.nbas
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr200,#hdl200>
-	orclos
-	mov	r1,r3
-	ctx2st
-	mov	#tmpbuf,r0
-	clr	r2
-	call	$cbdmg
-	sub	#tmpbuf,r0
-	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspast,<#tmpbuf,r0>
-	orclos
-	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspast,<#hdrend,#hdlend>
-	orclos
-	ctx2st
-	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspdon,<r0,r1>
-	orclos
-	jmp	rsprdy
-
-rspdon::mov	(sp)+,r1
-	mov	r1,r2
-	sub	#cl.sta,r1
-	orclos	r1,r2
-	jmp	close
-rcverr:	die	<Cannot receive data>
-
-close::	qiow$s	#io.cln,cl.lun(r1),#conefn
-	call	relcli
-	astx$s
-
-rspast::mov	(sp)+,r1
-	mov	r1,r2
-	sub	#cl.sta,r1
-	orclos	r1,r2
-	astx$s
-
-tokcmp::tstb	@r0
-	beq	patend
-	cmpb	(r0)+,(r1)+
-	beq	tokcmp
-neq:	sec
-	return
-patend:	cmpb	r2,@r1
-	bne	neq
-	inc	r1
-	clc
-	return
-
-fndhnd::jsr	r2,$savvr
-	clr	r1
-	call	$cat5
-	bcc	4$
-	cmpb	#' ,r2
-	bne	3$
-4$:	mov	#hndtbl,r0
-1$:	cmp	(r0)+,r1
-	beq	2$
-	cmp	r0,#hndend
-	bge	3$
-	cmp	(r0)+,(r0)+
-	br	1$
-2$:	mov	r0,2(sp)
-	clc
-	return
-3$:	sec
 	return
 
 	.end	start

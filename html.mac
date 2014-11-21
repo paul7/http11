@@ -4,15 +4,17 @@
 	.mcall	astx$s,spnd$s,srra$s,umap$s,dtrg$s
 	.mcall	rdbbk$,wdbbk$
 	.mcall	ordie,die
+	.mcall	save02,save05
 
 ;; Initialize a HTML context.
 ;; Client buffer is at CLI.
 ;; Place context at LOC.
-	.macro	ctxini	loc,cli
+	.macro	ctxini	loc,cli,url
+	mov	url,-(sp)
 	mov	cli,-(sp)
 	mov	loc,-(sp)
 	call	ht$ini
-	add	#4,sp
+	add	#6,sp
 	.endm
 
 ;; Begin using existing HTML context.
@@ -90,13 +92,33 @@ $$$tag	=	.
 out:
 	.endm
 
+;; Get query argument.
+;; ARG points to argument name.
+;; Place value to VALUE.
+;; Clear Carry on success.
+	.macro	getarg	arg,value,ctx=$$$ctx,?ok,?out
+	mov	ctx,-(sp)
+	mov	arg,-(sp)
+	mov	value,-(sp)
+	call	ht$arg
+	bcc	ok
+	add	#6,sp
+	sec
+	br	out
+ok:	add	#6,sp
+	clc
+out:
+	.endm
+
 ;; Offsets in context definition.
 	.asect
 .	=	0
 ht.cli::.blkw	1		; Client descriptor in the server.
+ht.url::.blkb	256.		; Requested URL.
+ht.usz	== .	- ht.url	; Maximum URL size.
 ht.siz::.blkw	1		; Response length.	
 ht.str::			; Response string.
-ht.max	=	20000		; Single APR.	
+ht.max	==	20000		; Single APR.	
 
 	.psect	htmctx,d,rw
 $$$ctx::.word	0		; Current context address.	
@@ -105,16 +127,16 @@ rdb:	rdbbk$			; Region description for context.
 rcvbuf:	.blkw	10.		; Receive buffer.
 
 	.psect	htmcod,i,ro
-ht$res::jsr	r2,$savvr	; Save R0..R2.	
-	mov	12(sp),r1	; String => R1.	
-	mov	14(sp),r0	; Context => R0.	
+ht$res::save02			; Save R0..R2.	
+	mov	sarg(sp),r1	; String => R1.	
+	mov	sarg+2(sp),r0	; Context => R0.	
 	add	ht.siz(r0),r0	; R0 now points to the first	
 	add	#ht.str,r0	; unused byte in the context.	
 1$:	movb	(r1)+,r2	; Copy string to the context.	
 	beq	2$
 	movb	r2,(r0)+
 	br	1$
-2$:	mov	14(sp),r1	; Context => R1.
+2$:	mov	sarg+2(sp),r1	; Context => R1.
 	sub	#ht.str,r0
 	sub	r1,r0		; Response length => R0.	
 	mov	r0,ht.siz(r1)	; Save it.	
@@ -124,31 +146,40 @@ ht$2st::mov	ht.siz(r0),r1	; Response size => R1.
 	add	#ht.str,r0	; Response => R0.	
 	return
 
-ht$use::jsr	r2,$savvr
-	mov	12(sp),@14(sp)	; Save context address to	
+ht$use::save02
+	mov	sarg(sp),@sarg+2(sp); Save context address to	
 	return			; the specified location.	
 
-ht$ini::jsr	r2,$savvr
-	mov	12(sp),r0	; Context => R0.	
+ht$ini::save05
+	mov	sarg(sp),r0	; Context => R0.	
 	clr	ht.siz(r0)	; Response size is 0.	
-	mov	14(sp),ht.cli(r0)	; Save client descriptor.	
+	mov	sarg+2(sp),ht.cli(r0)	; Save client descriptor.	
+	add	#ht.url,r0	; Request URL buffer => R0.	
+	mov	#ht.usz-1,r1	; Buffer size => R1.	
+	mov	sarg+4(sp),r2	; URL address => R2.	
+1$:	movb	(r2)+,r3	; Next char => R3.
+	cmpb	#' ,r3		; Is it a terminator?
+	bge	2$		; Yes. Finish.
+	movb	r3,(r0)+	; No. Save it.
+	sob	r1,1$		; Repeat.
+2$:	clrb	@r0		; Terminate URL string.
 	return
 
-ht$rdy::jsr	r2,$savvr
-	mov	12(sp),r0	; Context => R0.	
+ht$rdy::save02
+	mov	sarg(sp),r0	; Context => R0.	
 	add	#ht.cli,r0	; Client descriptor => R0.	
 	sdat$s	#rcvbuf,r0	; Inform server that client at R0 is ready.	
 	ordie	<HT$RDY: cannot send data>
 	return
 
-ht$msg::jsr	r2,$savvr
-	mov	12(sp),r2	; Parameter block => R2.	
-	mov	14(sp),r1	; Format => R1.	
-	mov	16(sp),r0	; Context => R0.	
+ht$msg::save02
+	mov	sarg(sp),r2	; Parameter block => R2.	
+	mov	sarg+2(sp),r1	; Format => R1.	
+	mov	sarg+4(sp),r0	; Context => R0.	
 	add	ht.siz(r0),r0
 	add	#ht.str,r0	; First unused byte in context => R0.	
 	call	$edmsg		; Construct response.	
-	mov	16(sp),r1	; Context => R0	
+	mov	sarg+4(sp),r1	; Context => R1	
 	sub	#ht.str,r0
 	sub	r1,r0		; New response length => R0.	
 	mov	r0,ht.siz(r1)	; Save it.	
@@ -176,5 +207,74 @@ ht$ast::craw$s	#wdb		; Create an address window
 	ordie	<HT$AST: Cannot set AST>
 1$:	spnd$s			; Wait for requests.	
 	br	1$
+
+ht$arg::save05
+	mov	sarg+2(sp),r3	; Argument name => R3.	
+	mov	sarg+4(sp),r1	; Context => R1.
+	add	#ht.url,r1	; R1 points at URL.
+	movb	#'?,r2		; Look for query arguments.
+1$:	call	fndchr		; Delimiter found?
+	bcs	10$		; No.	
+	mov	r3,r0		; Look for argument name
+	movb	#'=,r2		; terminated by =.	
+	call	tokcmp		; Argument found?
+	bcc	7$		; Yes.
+	movb	#'&,r2		; Look for the next argument.	
+	br	1$
+7$:	mov	sarg(sp),r0	; Buffer for argument value => R0.
+8$:	movb	(r1)+,r2	; Next char => R2.
+	beq	9$		; End of string?
+	cmpb	#'&,r2		; Beginning of the next argument?
+	beq	9$	
+	movb	r2,(r0)+	; Save character.
+	br	8$		; Repeat.	
+9$:	clrb	@r0		; Terminate string.	
+	clc			; Success.
+	return
+	
+10$:	sec			; No such argument.	
+	return
+
+	.sbttl	String utilities
+
+;+
+; Check if the token is present in string.
+; R0 points to ASCIZ token.
+; R1 points to string to check.
+; R2 points to string token delimiter.
+; Carry bit is cleared if token is found.
+; R1 is updated to point after token and delimiter.
+;-
+tokcmp::save02
+1$:	tstb	@r0
+	beq	3$
+	cmpb	(r0)+,(r1)+
+	beq	1$
+2$:	sec
+	return
+3$:	cmpb	r2,@r1
+	bne	2$
+	inc	r1
+	mov	r1,s1(sp)
+	clc
+	return
+
+;+
+; Find character in ASCIZ string.
+; R1 points to string.
+; R2 contains the character.
+; Carry bit is cleared if character is found.
+; R1 is updated to point after the character.
+;-
+fndchr::save02
+1$:	tstb	@r1
+	beq	2$
+	cmpb	(r1)+,r2
+	bne	1$
+	mov	r1,s1(sp)
+	clc
+	return
+2$:	sec
+	return
 
 	.end
