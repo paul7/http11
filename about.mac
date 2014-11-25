@@ -2,7 +2,9 @@
 	.ident	/X00.50/
 
 	.mcall	htmast,htmbgn
-	.mcall	respnd,htmsg
+	.mcall	respnd,htmsg,footer,getreq
+
+	.include /offset.mac/
 
 	.psect	html,d,rw
 about::	.ascii	|<h1>Welcome to HTTP/11</h1>|
@@ -13,16 +15,18 @@ about::	.ascii	|<h1>Welcome to HTTP/11</h1>|
 
 visitr::.asciz	|<div>You're a visitor #%D since the last restart.</div>|
 url::	.asciz	|<div>URL was: %I</div><div>Length = %D</div>|
+req::	.asciz	|<div>RequestID = %D</div>|
 
 	.even
 visnum::.word	0
 urladr::.word	0
 urllen::.word	0
+reqid::	.word	0
 
 	.psect	code,i,ro
-start::	htmast	#req
+start::	htmast	#rqst
 
-req::	htmbgn
+rqst::	htmbgn
 	inc	visnum
 	respnd	#about
 	htmsg	#visitr,#visnum
@@ -34,6 +38,9 @@ req::	htmbgn
 	sub	urladr,r0
 	mov	r0,urllen
 	htmsg	#url,#urladr
+	getreq	reqid
+	htmsg	#req,#reqid
+	footer
 	return
 
 	.end	start

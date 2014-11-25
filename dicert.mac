@@ -1,0 +1,41 @@
+	.title	dice
+	.ident 	/V01.00/
+	.mcall	htmbgn,htmast,respnd
+	.mcall	getarg,htmsg
+	.mcall	gtim$s
+
+	.psect	tmp,d,rw
+date:	.blkw	8.
+iostat:	.blkw	2
+questn:	.blkb	256.
+
+	.psect	const,d,ro
+tbl:	.word	yesmsg
+	.word	nomsg
+qaddr:	.word	questn
+argnam:	.asciz	|q|
+yesmsg:	.asciz	|<p>&mdash; Yes.</p>|
+nomsg:	.asciz	|<p>&mdash; No.</p>|
+qform::	.ascii	|<form method="GET" action="/DICE">|
+	.ascii	|<p>&mdash; |
+	.asciz	|<input type="text" name="q" />?</p></form>|
+qfmt:	.asciz	|<p>&mdash; %I?</p>|
+back:	.asciz	|<p><a href="/DICE">Back.</a></p>|
+
+	.psect	code,i,ro
+dice:	htmast	#rqst
+
+rqst:	htmbgn
+	getarg	#argnam,#questn
+	bcs	noarg
+	gtim$s	#date
+	mov	@#date+g.tict,r0
+	bic	#177775,r0
+	htmsg	#qfmt,#qaddr
+	respnd	tbl(r0)
+	respnd	#back
+	return
+noarg:	respnd #qform
+	return
+
+	.end	dice

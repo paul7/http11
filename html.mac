@@ -6,15 +6,18 @@
 	.mcall	ordie,die
 	.mcall	save02,save05
 
+	.include /offset.mac/
+
 ;; Initialize a HTML context.
 ;; Client buffer is at CLI.
 ;; Place context at LOC.
-	.macro	ctxini	loc,cli,url
+	.macro	ctxini	loc,cli,url,rid
+	mov	rid,-(sp)
 	mov	url,-(sp)
 	mov	cli,-(sp)
 	mov	loc,-(sp)
 	call	ht$ini
-	add	#6,sp
+	add	#10,sp
 	.endm
 
 ;; Begin using existing HTML context.
@@ -45,6 +48,20 @@ $$$tag	=	.
 	.asciz	!<name>!
 	.restore
 	respnd	#$$$tag,ctx
+	.endm
+
+;; Respond with a standard footer.
+	.macro	footer	ctx=$$$ctx
+	mov	ctx,-(sp)
+	call	ht$ftr
+	add	#2,sp
+	.endm
+
+;; Get current RequestID
+	.macro	getreq	dest=r0
+	sub	#2,sp
+	call	ht$req
+	mov	(sp)+,dest
 	.endm
 
 ;; Get the response string and its length
@@ -110,21 +127,15 @@ ok:	add	#6,sp
 out:
 	.endm
 
-;; Offsets in context definition.
-	.asect
-.	=	0
-ht.cli::.blkw	1		; Client descriptor in the server.
-ht.url::.blkb	256.		; Requested URL.
-ht.usz	== .	- ht.url	; Maximum URL size.
-ht.siz::.blkw	1		; Response length.	
-ht.str::			; Response string.
-ht.max	==	20000		; Single APR.	
-
 	.psect	htmctx,d,rw
 $$$ctx::.word	0		; Current context address.	
 wdb:	wdbbk$	7,200,,,,,rcvbuf; Window description for context.	
 rdb:	rdbbk$			; Region description for context.	
-rcvbuf:	.blkw	10.		; Receive buffer.
+rcvbuf::.blkw	10.		; Receive buffer.
+reqid	=	rcvbuf + 4
+
+	.psect	htmcon,d,ro
+ftrtxt:	.asciz	|<p><small>Powered by MACRO-11</small></p>|
 
 	.psect	htmcod,i,ro
 ht$res::save02			; Save R0..R2.	
@@ -154,6 +165,7 @@ ht$ini::save05
 	mov	sarg(sp),r0	; Context => R0.	
 	clr	ht.siz(r0)	; Response size is 0.	
 	mov	sarg+2(sp),ht.cli(r0)	; Save client descriptor.	
+	mov	sarg+6(sp),ht.rid(r0)	; Save RequestID.	
 	add	#ht.url,r0	; Request URL buffer => R0.	
 	mov	#ht.usz-1,r1	; Buffer size => R1.	
 	mov	sarg+4(sp),r2	; URL address => R2.	
@@ -192,11 +204,15 @@ ht$bgn::rref$s	#wdb		; Receive a reference to a region.
 	tst	(sp)+		;  Yes. Done	
 	astx$s
 1$:	mov	wdb+w.nrid,rdb+r.gid	; Save RegionID.	
-	ctxuse	wdb+w.nbas	; Output to the received region.	
+	mov	wdb+w.nbas,r0	; Mapping address => R0.	
+	cmp	ht.rid(r0),reqid; Is request processing allowed?	
+	bne	2$		; No.	
+	inc	ht.dir(r0)	; Mark region dirty.	
+	ctxuse	r0		; Output to the received region.	
 	mov	@sp,r0		; Actual handler addr => R0.	
 	call	@r0		; Build a response.	
 	ctxrdy			; Done.	
-	dtrg$s	#rdb		; Detach the region.	
+2$:	dtrg$s	#rdb		; Detach the region.	
 	br	ht$bgn		; Is there any work left?	
 rcverr:	die	<HT$BGN: Cannot receive by reference>
 
@@ -235,6 +251,16 @@ ht$arg::save05
 	return
 	
 10$:	sec			; No such argument.	
+	return
+
+ht$ftr::save02
+	mov	sarg(sp),-(sp)
+	mov	#ftrtxt,-(sp)
+	call	ht$res
+	add	#4,sp
+	return
+
+ht$req::mov	reqid,2(sp)
 	return
 
 	.sbttl	String utilities
@@ -289,7 +315,10 @@ urldec::save05
 	beq	10$		; End of string?
 	cmpb	#'%,r2		; URL-encoded character?
 	beq	2$		; Yes, decode it.
-	movb	r2,(r1)+	; No, leave it alone.	
+	cmpb	#'+,r2		; Is it html-space?
+	bne	20$		; No, leave it alone.	
+	movb	#' ,r2		; Yes, replace it with an actual space.	
+20$:	movb	r2,(r1)+	; Save it.
 	br	1$		; Repeat.	
 2$:	mov	#2,r3		; Digit counter => R3.
 	clr	r4		; Decoded char => R4.

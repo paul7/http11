@@ -1,0 +1,46 @@
+	.title	savreg
+	.ident	/X00.10/
+
+;   JSR  PC,$SAVAL or CALL $SAVAL   ; Save all Registers
+;   JSR  R5,$SAVRG                  ; Save Registers 3-5
+;   JSR  R2,$SAVVR                  ; Save Registers 0-2
+;   JSR  R5,.SAVR1                  ; Save Registers 1-5
+
+	.macro	save05
+	jsr	pc,$saval
+s0	=	2
+s1	=	4
+s2	=	6
+s3	=	10
+s4	=	12
+s5	=	14
+sarg	=	20
+	.endm	save05
+
+	.macro	save35
+	jsr	r5,$savrg
+s3	=	2
+s4	=	4
+s5	=	6
+sarg	=	12
+	.endm	save35
+
+	.macro	save02
+	jsr	r2,$savvr
+s0	=	2
+s1	=	4
+s2	=	6
+sarg	=	12
+	.endm	save02
+
+	.macro	save15
+	jsr	r5,.savr1
+s1	=	2
+s2	=	4
+s3	=	6
+s4	=	10
+s5	=	12
+sarg	=	16
+	.endm	save15
+
+	.end

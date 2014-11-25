@@ -1,0 +1,60 @@
+	.title	ordie
+	.ident	/V01.02/
+	.mcall	qiow$s,exit$s
+
+	.macro	ordie	text,iopl,always=0,?out
+	.save
+	.psect	diemsg,d,ro
+$$$msg	=	.
+	.ascii	<15><12>/text/
+$$$len	=	. - $$$msg
+	.restore
+	.if ne always - 1
+	bcc	out
+	.endc
+	.if nb iopl
+	tstb	iopl
+	bpl	out
+	.endc
+	mov	#$$$msg,-(sp)
+	mov	#$$$len,-(sp)
+	jmp	ordie$
+out:
+	.endm
+
+	.macro	die	text
+	.mcall	ordie
+	ordie	<text>,,always=1
+	.endm
+
+	.macro	iodie	text,iopl
+	.mcall	ordie
+	ordie	<text>,iopl,always=1
+	.endm
+
+	.macro	dielun	lun
+	mov	lun,tilun$
+	.endm
+
+	.psect	diedat,d,rw
+tilun$::.word	5
+buf:	.blkb	40.
+dsw:	.blkw	1
+dswfmt::.asciz	<15><12>/$DSW = %P/
+
+	.psect	diecod,i,ro
+ordie$::call	1$
+	iot
+1$:	jsr	r2,$savvr	
+	mov	12(sp),r0
+	mov	14(sp),r1
+	mov	$dsw,dsw
+	qiow$s	#io.wlb,tilun$,#1,,,,<r1,r0>
+	mov	#buf,r0
+	mov	#dswfmt,r1
+	mov	#dsw,r2
+	call	$edmsg
+	sub	#buf,r0
+	qiow$s	#io.wlb,tilun$,#1,,,,<#buf,r0>
+	return
+	.end

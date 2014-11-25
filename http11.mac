@@ -8,6 +8,8 @@
 	.mcall	ctxini,ctxuse,ctx2st
 	.mcall	save02,save05
 
+	.include /offset.mac/
+
 	.nlist	me
 
 port	=	1337.
@@ -96,9 +98,11 @@ ok:
 
 	.asect
 cl.nxt:	.blkw	1
-cl.rid:	.blkw	1
+cl.reg:	.blkw	1
 cl.lun:	.blkw	1
 cl.sta:	.blkw	2
+cl.rid:	.blkw	1
+cl.age:	.blkw	1
 cl.req:	.blkb	256.
 cl.rsz	=	. - cl.req
 cl.siz	=	.
@@ -107,12 +111,13 @@ cl.siz	=	.
 regsiz	=	200
 rdb::	rdbbk$	regsiz,,,rs.att!rs.red!rs.wrt,170000
 rdbsiz	=	. - rdb
-wdb::	wdbbk$	7,regsiz,0,0,,ws.wrt
+wdb::	wdbbk$	7,regsiz,0,0,,ws.wrt,reqid
 
 	.psect	regdef,d,rw
 clirdb::.blkb	rdbsiz * clinum
 
 	.psect	clidef,d,rw
+reqid::	.word	0
 topcli::.word	0
 client::.blkb	cl.siz * clinum
 
@@ -128,13 +133,15 @@ iosb:	.blkw	2
 rcvtsk:	.rad50	/HWROUT/
 hndtbl:	.word	0
 	.rad50	/ABOUT/
-	.rad50	/ABO/
+	.word	^rABO
 	.rad50	/ABOUT/
-	.rad50	/QAR/
+	.word	^rDIC
+	.rad50	/DICERT/
+	.word	^rQAR
 	.rad50	/QARG/
-	.rad50	/HEL/
+	.word	^rHEL
 	.rad50	/HWROUT/
-	.rad50	/BYE/
+	.word	^rBYE
 hndend:	.rad50	/BYROUT/
 
 	.psect	const,d,ro
@@ -222,7 +229,7 @@ reqrdy::mov	(sp)+,r1
 3$:	mov	r1,r2
 	mov	r3,r1
 	call	mapcli
-	ctxini	wdb+w.nbas,r1,r2
+	ctxini	wdb+w.nbas,r1,r2,cl.rid(r1)
 temp::	sref$s	r0,#wdb,#1
 	or503
 	astx$s
@@ -319,7 +326,9 @@ inicli::save05
 1$:	mov	r2,cl.lun(r0)
 	alun$s	r2,#"TC
 	bcs	lunerr
-	mov	r3,cl.rid(r0)
+	clr	cl.rid(r0)
+	clr	cl.age(r0)
+	mov	r3,cl.reg(r0)
 	mov	topcli,cl.nxt(r0)
 	mov	r0,topcli
 	mov	#rdbsiz,r5
@@ -346,6 +355,8 @@ lunerr:	die	<Cannot assign LUN>
 ;-
 getcli::mov	topcli,r1
 	beq	1$
+	inc	reqid
+	mov	reqid,cl.rid(r1)
 	mov	cl.nxt(r1),topcli
 1$:	return
 
@@ -355,6 +366,8 @@ getcli::mov	topcli,r1
 ;-
 relcli::mov	topcli,cl.nxt(r1)
 	mov	r1,topcli
+	clr	cl.rid(r1)
+	clr	cl.age(r1)
 	return
 
 ;+
@@ -363,7 +376,7 @@ relcli::mov	topcli,cl.nxt(r1)
 ;-
 mapcli::save02
 	mov	r1,r2
-	add	#cl.rid,r2
+	add	#cl.reg,r2
 	mov	@r2,r2
 	mov	r.gid(r2),wdb+w.nrid
 	map$s	#wdb

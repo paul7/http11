@@ -1,0 +1,23 @@
+	.asect
+;; Offsets in context definition.
+.	=	0
+ht.cli:	.blkw	1		; Client descriptor in the server.
+ht.rid:	.blkw	1		; RequestID.
+ht.dir:	.blkw	1		; Dirty flag.	
+ht.url:	.blkb	256.		; Requested URL.
+ht.usz	= .	- ht.url	; Maximum URL size.
+ht.siz:	.blkw	1		; Response length.	
+ht.str:				; Response string.
+ht.max	=	20000		; Single APR.	
+
+;; Offsets in client definition
+.	=	0
+cl.nxt:	.blkw	1
+cl.reg:	.blkw	1
+cl.lun:	.blkw	1
+cl.sta:	.blkw	2
+cl.rid:	.blkw	1
+cl.age:	.blkw	1
+cl.req:	.blkb	256.
+cl.rsz	=	. - cl.req
+cl.siz	=	.
