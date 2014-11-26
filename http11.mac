@@ -220,7 +220,7 @@ conrdy::tst	(sp)+
 	call	getcli
 	tst	r1
 	bne	1$
-	qiow$s	#io.rej,#tclun,#tcefn
+	qiow$s	#io.rej,#tclun,#tcefn,,#iosb
 	br	2$
 1$:	qiow$s	#io.cep,cl.lun(r1),#conefn,,#iosb,,<#port>
 	orclos	,iosb
