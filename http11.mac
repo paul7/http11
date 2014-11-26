@@ -2,7 +2,7 @@
 	.ident	/X00.50/
 	.mcall	crrg$s,craw$s,sref$s,qiow$s,qio$s
 	.mcall	astx$s,dsar$s,enar$s,srda$s,rcvd$s
-	.mcall	spnd$s,alun$s,map$s
+	.mcall	spnd$s,alun$s,map$s,mrkt$s,gtim$s
 	.mcall	rdbbk$,wdbbk$
 	.mcall	ordie,die,dielun
 	.mcall	ctxini,ctxuse,ctx2st
@@ -26,6 +26,9 @@ blun	=	4
 
 sopt	=	21
 tmout	=	30.
+
+maxage	=	5
+wtchps	=	5
 
 	.sbttl	Error Handling Macros
 
@@ -96,17 +99,6 @@ ok:
 
 	.sbttl	Data Definition
 
-	.asect
-cl.nxt:	.blkw	1
-cl.reg:	.blkw	1
-cl.lun:	.blkw	1
-cl.sta:	.blkw	2
-cl.rid:	.blkw	1
-cl.age:	.blkw	1
-cl.req:	.blkb	256.
-cl.rsz	=	. - cl.req
-cl.siz	=	.
-
 	.psect	dir,d,rw
 regsiz	=	200
 rdb::	rdbbk$	regsiz,,,rs.att!rs.red!rs.wrt,170000
@@ -128,6 +120,8 @@ tmpbl	=	. - tmpbuf
 reqbuf:	.blkw	100
 reqbl	=	. - reqbuf
 iosb:	.blkw	2
+date:	.blkw	8.
+timer:	.blkw	1
 
 	.psect	handlr,d,rw
 rcvtsk:	.rad50	/HWROUT/
@@ -170,6 +164,14 @@ start::	alun$s	#tilun,#"TI
 
 	alun$s	#tclun,#"TC
 	ordie	<Cannot assign listening LUN>
+
+	gtim$s	#date
+	ordie	<Cannot get time information>
+	mov	date+g.ticp,r0
+	mov	#wtchps,r1
+	call	$div
+	mov	r0,timer
+
 	dsar$s
 
 	qiow$s	#io.cep,#tclun,#tcefn,,#iosb,,<#port>
@@ -179,11 +181,39 @@ start::	alun$s	#tilun,#"TI
 	qiow$s	#io.lsn,#tclun,#tcefn,,#iosb,,<,#clinum.>
 	ordie	<Cannot listen>,iosb
 
+	mrkt$s	,timer,#1,#watchd
+	ordie	<Cannot setup watchdog timer>
+
 	enar$s
 1$:	spnd$s
 	br	1$
 
 	.sbttl	AST Routines
+
+watchd::tst	(sp)+
+	mov	#clinum,r0
+	mov	#client,r1
+1$:	tst	cl.rid(r1)
+	beq	10$
+	inc	cl.age(r1)
+	cmp	#maxage,cl.age(r1)
+	bgt	10$
+	qiow$s	#io.cln,cl.lun(r1),#conefn
+	call	mapcli
+	mov	wdb+w.nbas,r2
+	clr	ht.rid(r2)
+	cmp	#maxage,cl.age(r1)
+	beq	10$
+	tst	ht.dir(r2)
+	bne	9$
+	call	relcli
+9$:
+10$:
+	add	#cl.siz,r1
+	sob	r0,1$
+	mrkt$s	,timer,#1,#watchd
+	ordie	<Cannot re-setup watchdog timer>
+	astx$s
 
 conrdy::tst	(sp)+
 	qiow$s	#io.ast,#tclun,#tcefn
@@ -355,7 +385,8 @@ lunerr:	die	<Cannot assign LUN>
 ;-
 getcli::mov	topcli,r1
 	beq	1$
-	inc	reqid
+	add	#1,reqid	; Set Carry on overflow!	
+	adc	reqid
 	mov	reqid,cl.rid(r1)
 	mov	cl.nxt(r1),topcli
 1$:	return

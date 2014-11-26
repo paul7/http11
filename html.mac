@@ -166,6 +166,7 @@ ht$ini::save05
 	clr	ht.siz(r0)	; Response size is 0.	
 	mov	sarg+2(sp),ht.cli(r0)	; Save client descriptor.	
 	mov	sarg+6(sp),ht.rid(r0)	; Save RequestID.	
+	clr	ht.dir(r0)	; Region is not dirty.	
 	add	#ht.url,r0	; Request URL buffer => R0.	
 	mov	#ht.usz-1,r1	; Buffer size => R1.	
 	mov	sarg+4(sp),r2	; URL address => R2.	
