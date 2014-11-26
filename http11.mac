@@ -3,6 +3,7 @@
 	.mcall	crrg$s,craw$s,sref$s,qiow$s,qio$s
 	.mcall	astx$s,dsar$s,enar$s,srda$s,rcvd$s
 	.mcall	spnd$s,alun$s,map$s,mrkt$s,gtim$s
+	.mcall	dtrg$s
 	.mcall	rdbbk$,wdbbk$
 	.mcall	ordie,die,dielun
 	.mcall	ctxini,ctxuse,ctx2st
@@ -205,11 +206,10 @@ watchd::tst	(sp)+
 	cmp	#maxage,cl.age(r1)
 	beq	10$
 	tst	ht.dir(r2)
-	bne	9$
-	call	relcli
-9$:
-10$:
-	add	#cl.siz,r1
+	beq	9$
+	call	reicli
+9$:	call	relcli
+10$:	add	#cl.siz,r1
 	sob	r0,1$
 	mrkt$s	,timer,#1,#watchd
 	ordie	<Cannot re-setup watchdog timer>
@@ -379,7 +379,25 @@ inicli::save05
 	sob	r1,3$
 	return
 regerr:	die	<Cannot create region>
+deterr:	die	<Cannot detach region>
 lunerr:	die	<Cannot assign LUN>
+
+;+
+; Reinitialize stuck client.
+; Release its region and make a new one.
+; Client descriptor is in R1.
+;-
+reicli::save05
+	dtrg$s	cl.reg(r1)
+	bcs	deterr
+	mov	#rdbsiz,r5
+	mov	#rdb,r4
+	mov	cl.reg(r1),r3
+1$:	movb	(r4)+,(r3)+
+	sob	r5,1$
+	crrg$s	cl.reg(r1)
+	bcs	regerr
+	return
 
 ;+
 ; Pop a client descriptor from the pool.
