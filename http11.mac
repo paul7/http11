@@ -260,7 +260,7 @@ reqrdy::mov	(sp)+,r1
 	mov	r3,r1
 	call	mapcli
 	ctxini	wdb+w.nbas,r1,r2,cl.rid(r1)
-temp::	sref$s	r0,#wdb,#1
+	sref$s	r0,#wdb,#1
 	or503
 	astx$s
 
@@ -272,9 +272,12 @@ rsprdy::rcvd$s	,#rspbuf
 2$:	jmp	rcverr	
 1$:	mov	rspbuf+4,r1
 	call	mapcli
+	mov	wdb+w.nbas,r0
+	cmp	ht.rid(r0),cl.rid(r1)
+	bne	rsprdy
 	mov	r1,r4
 	add	#cl.sta,r4
-	ctxuse	wdb+w.nbas
+	ctxuse	r0
 	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr200,#hdl200>
 	orclos
 	mov	r1,r3
