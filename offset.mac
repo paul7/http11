@@ -1,23 +1,35 @@
+	.title	offset
+	.ident	/X00.90/
+
+	.macro	useoff	struct
+	.if idn,struct,<context>
 	.asect
 ;; Offsets in context definition.
 .	=	0
-ht.cli:	.blkw	1		; Client descriptor in the server.
-ht.rid:	.blkw	1		; RequestID.
-ht.dir:	.blkw	1		; Dirty flag.	
-ht.url:	.blkb	256.		; Requested URL.
-ht.usz	= .	- ht.url	; Maximum URL size.
-ht.siz:	.blkw	1		; Response length.	
-ht.str:				; Response string.
-ht.max	=	20000		; Single APR.	
+h.clid:	.blkw	1		; Client descriptor in the server.
+h.rqid:	.blkw	1		; RequestID.
+h.drty:	.blkw	1		; Dirty flag.	
+h.url:	.blkb	256.		; Requested URL.
+h.usiz	=	. - h.url	; Maximum URL size.
+h.size:	.blkw	1		; Response length.	
+h.resp:				; Response string.
+h.max	=	20000		; Single APR.	
+	.endc
 
+	.if idn,struct,<client>
+	.asect
 ;; Offsets in client definition
 .	=	0
-cl.nxt:	.blkw	1
-cl.reg:	.blkw	1
-cl.lun:	.blkw	1
-cl.sta:	.blkw	2
-cl.rid:	.blkw	1
-cl.age:	.blkw	1
-cl.req:	.blkb	256.
-cl.rsz	=	. - cl.req
-cl.siz	=	.
+c.next:	.blkw	1
+c.rgid:	.blkw	1
+c.lun:	.blkw	1
+c.iost:	.blkw	2
+c.rqid:	.blkw	1
+c.stat:	.blkw	1
+c.age:	.blkw	1
+c.tmp:
+c.rqst:	.blkb	256.
+c.rsz	=	. - c.rqst
+c.size	=	.
+	.endc
+	.endm	useoff

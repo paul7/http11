@@ -8,8 +8,7 @@
 	.mcall	ordie,die,dielun
 	.mcall	ctxini,ctxuse,ctx2st
 	.mcall	save02,save05
-
-	.include /offset.mac/
+	.mcall	useoff
 
 	.nlist	me
 
@@ -31,6 +30,14 @@ tmout	=	30.
 maxage	=	5
 wtchps	=	5
 
+cl.free	=	0
+cl.read =	1
+cl.work	=	2
+cl.err	=	100000
+
+	useoff	context
+	useoff	client
+
 	.sbttl	Error Handling Macros
 
 	.macro	deferr	code,desc
@@ -47,21 +54,25 @@ msl'code=	. - msg'code
 	.psect	errcod,i,ro
 rsp'code::
 	mov	r1,r4
-	add	#cl.sta,r4
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr'code,#hdl'code>
+	add	#c.iost,r4
+	mov	r1,r5
+	add	#c.tmp,r5
+	qiow$s	#io.can,c.lun(r1),#conefn
+	orclos
+	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<#hdr'code,#hdl'code>
 	orclos
 	mov	r1,r3
-	mov	#tmpbuf,r0
+	mov	r5,r0
 	mov	#msl'code,r1
 	clr	r2
 	call	$cbdmg
-	sub	#tmpbuf,r0
+	sub	r5,r0
 	mov	r3,r1
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#tmpbuf,r0>
+	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<r5,r0>
 	orclos
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdrend,#hdlend>
+	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<#hdrend,#hdlend>
 	orclos
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspdon,<#msg'code,#msl'code>
+	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspdon,<#msg'code,#msl'code>
 	orclos
 	astx$s
 	.restore
@@ -95,6 +106,7 @@ ok:
 
 	deferr	400,<Bad Request>
 	deferr	404,<Not Found>
+	deferr	408,<Request Timeout>
 	deferr	500,<Internal Server Error>
 	deferr	503,<Service Unavailable>
 
@@ -112,12 +124,10 @@ clirdb::.blkb	rdbsiz * clinum
 	.psect	clidef,d,rw
 reqid::	.word	0
 topcli::.word	0
-client::.blkb	cl.siz * clinum
+client::.blkb	c.size * clinum
 
 	.psect	tmp,d,rw
 rspbuf:	.blkw	15.
-tmpbuf:	.blkw	100
-tmpbl	=	. - tmpbuf
 reqbuf:	.blkw	100
 reqbl	=	. - reqbuf
 iosb:	.blkw	2
@@ -125,7 +135,6 @@ date:	.blkw	8.
 timer:	.blkw	1
 
 	.psect	handlr,d,rw
-rcvtsk:	.rad50	/HWROUT/
 hndtbl:	.word	0
 	.rad50	/ABOUT/
 	.word	^rABO
@@ -134,18 +143,24 @@ hndtbl:	.word	0
 	.rad50	/DICERT/
 	.word	^rQAR
 	.rad50	/QARG/
+	.word	^rBIG
+	.rad50	/BIG   /
 	.word	^rHEL
 	.rad50	/HWROUT/
 	.word	^rBYE
 hndend:	.rad50	/BYROUT/
 
 	.psect	const,d,ro
+chnend:	.byte	15,12
+chnenl	=	. - chnend
+lstchn:	.asciz	/0/<15><12><15><12>
+lstchl	=	. - lstchn
 reqget:	.asciz	|GET|
 hdr200:	.ascii	|HTTP/1.1 200 OK|<15><12>
 	.ascii	|Content-Type: text/html; charset=utf-8|<15><12>
-	.ascii	|Content-Length: |
+	.ascii	|Transfer-Encoding: chunked|<15><12>
 hdl200	=	. - hdr200
-hdrend:	.ascii	<15><12>|Server: HTTP/11 X00.50|<15><12>
+hdrend:	.ascii	|Server: HTTP/11 X00.50|<15><12>
 	.ascii	|Connection: close|<15><12>
 	.ascii	<15><12>
 hdlend	=	. - hdrend
@@ -194,22 +209,22 @@ start::	alun$s	#tilun,#"TI
 watchd::tst	(sp)+
 	mov	#clinum,r0
 	mov	#client,r1
-1$:	tst	cl.rid(r1)
+1$:	tst	c.rqid(r1)
 	beq	10$
-	inc	cl.age(r1)
-	cmp	#maxage,cl.age(r1)
+	inc	c.age(r1)
+	cmp	#maxage,c.age(r1)
 	bgt	10$
-	qiow$s	#io.cln,cl.lun(r1),#conefn
+	qiow$s	#io.cln,c.lun(r1),#conefn
 	call	mapcli
 	mov	wdb+w.nbas,r2
-	clr	ht.rid(r2)
-	cmp	#maxage,cl.age(r1)
+	clr	h.rqid(r2)
+	cmp	#maxage,c.age(r1)
 	beq	10$
-	tst	ht.dir(r2)
+	tst	h.drty(r2)
 	beq	9$
 	call	reicli
 9$:	call	relcli
-10$:	add	#cl.siz,r1
+10$:	add	#c.size,r1
 	sob	r0,1$
 	mrkt$s	,timer,#1,#watchd
 	ordie	<Cannot re-setup watchdog timer>
@@ -222,25 +237,26 @@ conrdy::tst	(sp)+
 	bne	1$
 	qiow$s	#io.rej,#tclun,#tcefn,,#iosb
 	br	2$
-1$:	qiow$s	#io.cep,cl.lun(r1),#conefn,,#iosb,,<#port>
+1$:	qiow$s	#io.cep,c.lun(r1),#conefn,,#iosb,,<#port>
 	orclos	,iosb
-	qiow$s	#io.acc,cl.lun(r1),#conefn,,#iosb,,<0,#sopt,#tmout>
+	qiow$s	#io.acc,c.lun(r1),#conefn,,#iosb,,<0,#sopt,#tmout>
 	orclos	,iosb
 	mov	r1,r2
-	add	#cl.sta,r2
+	add	#c.iost,r2
 	mov	r1,r3
-	add	#cl.req,r3
-	qio$s	#io.rlb,cl.lun(r1),#conefn,,r2,#reqrdy,<r3,#cl.rsz>
+	add	#c.rqst,r3
+	qio$s	#io.rlb,c.lun(r1),#conefn,,r2,#reqrdy,<r3,#c.rsz>
 	orclos
 2$:	astx$s
 
 reqrdy::mov	(sp)+,r1
 	mov	r1,r2
-	sub	#cl.sta,r1
-	orclos	r1,r2
+	sub	#c.iost,r1
+	orclos	,r2
+	beq	10$
 	mov	2(r2),r2	; Number of bytes read => R2.
 	mov	r1,r3
-	add	#cl.req,r1
+	add	#c.rqst,r1
 	add	r1,r2		;  End of request => R2.
 	clrb	@r2
 	mov	#reqget,r0
@@ -259,10 +275,10 @@ reqrdy::mov	(sp)+,r1
 3$:	mov	r1,r2
 	mov	r3,r1
 	call	mapcli
-	ctxini	wdb+w.nbas,r1,r2,cl.rid(r1)
+	ctxini	wdb+w.nbas,r1,r2,c.rqid(r1)
 	sref$s	r0,#wdb,#1
 	or503
-	astx$s
+10$:	astx$s
 
 rsprdy::rcvd$s	,#rspbuf
 	bcc	1$
@@ -273,43 +289,64 @@ rsprdy::rcvd$s	,#rspbuf
 1$:	mov	rspbuf+4,r1
 	call	mapcli
 	mov	wdb+w.nbas,r0
-	cmp	ht.rid(r0),cl.rid(r1)
+	cmp	h.rqid(r0),c.rqid(r1)
 	bne	rsprdy
 	mov	r1,r4
-	add	#cl.sta,r4
+	add	#c.iost,r4
 	ctxuse	r0
-	qio$s	#io.wlb,cl.lun(r1),#conefn,,r4,#rspast,<#hdr200,#hdl200>
+	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<#hdr200,#hdl200>
 	orclos
-	mov	r1,r3
+	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<#hdrend,#hdlend>
+	orclos	
+	mov	r1,-(sp)
 	ctx2st
-	mov	#tmpbuf,r0
-	clr	r2
-	call	$cbdmg
-	sub	#tmpbuf,r0
-	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspast,<#tmpbuf,r0>
-	orclos	r3	
-	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspast,<#hdrend,#hdlend>
-	orclos	r3	
-	ctx2st
-	qio$s	#io.wlb,cl.lun(r3),#conefn,,r4,#rspdon,<r0,r1>
-	orclos	r3	
+	mov	r0,-(sp)
+	mov	r1,-(sp)
+	call	chunk
+	add	#4,sp
+	mov	(sp)+,r1
+	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspdon,<#lstchn,#lstchl>
+	orclos
 	jmp	rsprdy
+
+chunk::	save05
+	mov	sarg+4(sp),r0
+	add	#c.tmp,r0
+	mov	r0,r5
+	mov	sarg(sp),r1
+	mov	#100020,r2
+	call	$cbta
+	movb	#15,(r0)+
+	movb	#12,(r0)+
+	sub	r5,r0
+	mov	sarg+4(sp),r1
+	mov	r1,r4
+	add	#c.iost,r4
+	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<r5,r0>
+	orclos
+	mov	sarg(sp),r2
+	mov	sarg+2(sp),r3
+	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<r3,r2>
+	orclos
+	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<#chnend,#chnenl>
+	orclos
+	return
 
 rspdon::mov	(sp)+,r1
 	mov	r1,r2
-	sub	#cl.sta,r1
-	orclos	r1,r2
+	sub	#c.iost,r1
+	orclos	,r2
 	jmp	close
 rcverr:	die	<Cannot receive data>
 
-close::	qiow$s	#io.cln,cl.lun(r1),#conefn
+close::	qiow$s	#io.cln,c.lun(r1),#conefn
 	call	relcli
 	astx$s
 
 rspast::mov	(sp)+,r1
 	mov	r1,r2
-	sub	#cl.sta,r1
-	orclos	r1,r2
+	sub	#c.iost,r1
+	orclos	,r2
 	astx$s
 
 	.sbttl	Utilities
@@ -356,19 +393,19 @@ inicli::save05
 	mov	#client,r0
 	mov	#blun,r2
 	mov	#clirdb,r3
-1$:	mov	r2,cl.lun(r0)
+1$:	mov	r2,c.lun(r0)
 	alun$s	r2,#"TC
 	bcs	lunerr
-	clr	cl.rid(r0)
-	clr	cl.age(r0)
-	mov	r3,cl.reg(r0)
-	mov	topcli,cl.nxt(r0)
+	clr	c.rqid(r0)
+	clr	c.age(r0)
+	mov	r3,c.rgid(r0)
+	mov	topcli,c.next(r0)
 	mov	r0,topcli
 	mov	#rdbsiz,r5
 	mov	#rdb,r4
 2$:	movb	(r4)+,(r3)+
 	sob	r5,2$
-	add	#cl.siz,r0
+	add	#c.size,r0
 	inc	r2
 	sob	r1,1$
 	mov	#clirdb,r0
@@ -388,14 +425,14 @@ lunerr:	die	<Cannot assign LUN>
 ; Client descriptor is in R1.
 ;-
 reicli::save05
-	dtrg$s	cl.reg(r1)
+	dtrg$s	c.rgid(r1)
 	bcs	deterr
 	mov	#rdbsiz,r5
 	mov	#rdb,r4
-	mov	cl.reg(r1),r3
+	mov	c.rgid(r1),r3
 1$:	movb	(r4)+,(r3)+
 	sob	r5,1$
-	crrg$s	cl.reg(r1)
+	crrg$s	c.rgid(r1)
 	bcs	regerr
 	return
 
@@ -408,18 +445,18 @@ getcli::mov	topcli,r1
 	beq	1$
 	add	#1,reqid	; Set Carry on overflow!	
 	adc	reqid
-	mov	reqid,cl.rid(r1)
-	mov	cl.nxt(r1),topcli
+	mov	reqid,c.rqid(r1)
+	mov	c.next(r1),topcli
 1$:	return
 
 ;+
 ; Push a client descriptor to the pool.
 ; Descriptor is in R1.
 ;-
-relcli::mov	topcli,cl.nxt(r1)
+relcli::mov	topcli,c.next(r1)
 	mov	r1,topcli
-	clr	cl.rid(r1)
-	clr	cl.age(r1)
+	clr	c.rqid(r1)
+	clr	c.age(r1)
 	return
 
 ;+
@@ -428,7 +465,7 @@ relcli::mov	topcli,cl.nxt(r1)
 ;-
 mapcli::save02
 	mov	r1,r2
-	add	#cl.reg,r2
+	add	#c.rgid,r2
 	mov	@r2,r2
 	mov	r.gid(r2),wdb+w.nrid
 	map$s	#wdb

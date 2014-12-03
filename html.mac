@@ -5,8 +5,9 @@
 	.mcall	rdbbk$,wdbbk$
 	.mcall	ordie,die
 	.mcall	save02,save05
+	.mcall	useoff
 
-	.include /offset.mac/
+	useoff	context
 
 ;; Initialize a HTML context.
 ;; Client buffer is at CLI.
@@ -16,7 +17,7 @@
 	mov	url,-(sp)
 	mov	cli,-(sp)
 	mov	loc,-(sp)
-	call	ht$ini
+	call	.htini
 	add	#10,sp
 	.endm
 
@@ -26,7 +27,7 @@
 	.macro	ctxuse	loc,ctx=$$$ctx
 	mov	#ctx,-(sp)
 	mov	loc,-(sp)
-	call	ht$use
+	call	.htuse
 	add	#4,sp
 	.endm
 
@@ -35,7 +36,7 @@
 	.macro	respnd	str,ctx=$$$ctx
 	mov	ctx,-(sp)
 	mov	str,-(sp)
-	call	ht$res
+	call	.htres
 	add	#4,sp
 	.endm
 
@@ -53,14 +54,14 @@ $$$tag	=	.
 ;; Respond with a standard footer.
 	.macro	footer	ctx=$$$ctx
 	mov	ctx,-(sp)
-	call	ht$ftr
+	call	.htftr
 	add	#2,sp
 	.endm
 
 ;; Get current RequestID
 	.macro	getreq	dest=r0
 	sub	#2,sp
-	call	ht$req
+	call	.htreq
 	mov	(sp)+,dest
 	.endm
 
@@ -70,13 +71,13 @@ $$$tag	=	.
 ;; and length in R1
 	.macro	ctx2st	ctx=$$$ctx
 	mov	ctx,r0
-	call	ht$2st
+	call	.ht2st
 	.endm
 
 ;; Response is ready. Inform the server.
 	.macro	ctxrdy	ctx=$$$ctx
 	mov	ctx,-(sp)
-	call	ht$rdy
+	call	.htrdy
 	add	#2,sp
 	.endm
 
@@ -84,12 +85,13 @@ $$$tag	=	.
 ;; Format is at FMT.
 ;; Parameter list is at PARAM.
 ;; Outputs to the context.
-	.macro	htmsg	fmt,param,ctx=$$$ctx
+	.macro	htmsg	fmt,param,max=#80.,ctx=$$$ctx
 	mov	ctx,-(sp)
 	mov	fmt,-(sp)
 	mov	param,-(sp)
-	call	ht$msg
-	add	#6,sp
+	mov	max,-(sp)
+	call	.htmsg
+	add	#10,sp
 	.endm
 
 ;; Prepare to receive requests from the server.
@@ -97,7 +99,7 @@ $$$tag	=	.
 ;; AST routine is at AST
 	.macro	htmast	ast
 	mov	ast,-(sp)
-	jmp	ht$ast
+	jmp	.htast
 	.endm
 
 ;; Prepare to process a request.
@@ -105,7 +107,7 @@ $$$tag	=	.
 ;; Actual processing should follow.
 	.macro	htmbgn	?out
 	mov	#out,-(sp)
-	jmp	ht$bgn
+	jmp	.htbgn
 out:
 	.endm
 
@@ -117,7 +119,7 @@ out:
 	mov	ctx,-(sp)
 	mov	arg,-(sp)
 	mov	value,-(sp)
-	call	ht$arg
+	call	.htarg
 	bcc	ok
 	add	#6,sp
 	sec
@@ -138,37 +140,37 @@ reqid	=	rcvbuf + 4
 ftrtxt:	.asciz	|<p><small>Powered by MACRO-11</small></p>|
 
 	.psect	htmcod,i,ro
-ht$res::save02			; Save R0..R2.	
+.htres::save02			; Save R0..R2.	
 	mov	sarg(sp),r1	; String => R1.	
 	mov	sarg+2(sp),r0	; Context => R0.	
-	add	ht.siz(r0),r0	; R0 now points to the first	
-	add	#ht.str,r0	; unused byte in the context.	
+	add	h.size(r0),r0	; R0 now points to the first	
+	add	#h.resp,r0	; unused byte in the context.	
 1$:	movb	(r1)+,r2	; Copy string to the context.	
 	beq	2$
 	movb	r2,(r0)+
 	br	1$
 2$:	mov	sarg+2(sp),r1	; Context => R1.
-	sub	#ht.str,r0
+	sub	#h.resp,r0
 	sub	r1,r0		; Response length => R0.	
-	mov	r0,ht.siz(r1)	; Save it.	
+	mov	r0,h.size(r1)	; Save it.	
 	return
 
-ht$2st::mov	ht.siz(r0),r1	; Response size => R1.	
-	add	#ht.str,r0	; Response => R0.	
+.ht2st::mov	h.size(r0),r1	; Response size => R1.	
+	add	#h.resp,r0	; Response => R0.	
 	return
 
-ht$use::save02
+.htuse::save02
 	mov	sarg(sp),@sarg+2(sp); Save context address to	
 	return			; the specified location.	
 
-ht$ini::save05
+.htini::save05
 	mov	sarg(sp),r0	; Context => R0.	
-	clr	ht.siz(r0)	; Response size is 0.	
-	mov	sarg+2(sp),ht.cli(r0)	; Save client descriptor.	
-	mov	sarg+6(sp),ht.rid(r0)	; Save RequestID.	
-	clr	ht.dir(r0)	; Region is not dirty.	
-	add	#ht.url,r0	; Request URL buffer => R0.	
-	mov	#ht.usz-1,r1	; Buffer size => R1.	
+	clr	h.size(r0)	; Response size is 0.	
+	mov	sarg+2(sp),h.clid(r0)	; Save client descriptor.	
+	mov	sarg+6(sp),h.rqid(r0)	; Save RequestID.	
+	clr	h.drty(r0)	; Region is not dirty.	
+	add	#h.url,r0	; Request URL buffer => R0.	
+	mov	#h.usiz-1,r1	; Buffer size => R1.	
 	mov	sarg+4(sp),r2	; URL address => R2.	
 1$:	movb	(r2)+,r3	; Next char => R3.
 	cmpb	#' ,r3		; Is it a terminator?
@@ -178,27 +180,33 @@ ht$ini::save05
 2$:	clrb	@r0		; Terminate URL string.
 	return
 
-ht$rdy::save02
+.htrdy::save02
 	mov	sarg(sp),r0	; Context => R0.	
-	add	#ht.cli,r0	; Client descriptor => R0.	
+	add	#h.clid,r0	; Client descriptor => R0.	
 	sdat$s	#rcvbuf,r0	; Inform server that client at R0 is ready.	
-	ordie	<HT$RDY: cannot send data>
+	ordie	<.htRDY: cannot send data>
 	return
 
-ht$msg::save02
-	mov	sarg(sp),r2	; Parameter block => R2.	
-	mov	sarg+2(sp),r1	; Format => R1.	
-	mov	sarg+4(sp),r0	; Context => R0.	
-	add	ht.siz(r0),r0
-	add	#ht.str,r0	; First unused byte in context => R0.	
+.htmsg::save02
+	mov	sarg+6(sp),r0	; Context => R0.	
+	mov	h.size(r0),r1
+	add	sarg(sp),r1
+	add	#h.resp,r1
+	cmp	#h.max,r1
+	bgt	1$
+	jmp	2$
+1$:	mov	sarg+2(sp),r2	; Parameter block => R2.	
+	mov	sarg+4(sp),r1	; Format => R1.	
+	add	h.size(r0),r0
+	add	#h.resp,r0	; First unused byte in context => R0.	
 	call	$edmsg		; Construct response.	
-	mov	sarg+4(sp),r1	; Context => R1	
-	sub	#ht.str,r0
+	mov	sarg+6(sp),r1	; Context => R1	
+	sub	#h.resp,r0
 	sub	r1,r0		; New response length => R0.	
-	mov	r0,ht.siz(r1)	; Save it.	
-	return
+	mov	r0,h.size(r1)	; Save it.	
+2$:	return
 
-ht$bgn::rref$s	#wdb		; Receive a reference to a region.	
+.htbgn::rref$s	#wdb		; Receive a reference to a region.	
 	bcc	1$		; Success?	
 	cmp	#ie.its,$dsw	; No. Emtpy queue?	
 	bne	rcverr		;  No. Bad.	
@@ -206,29 +214,29 @@ ht$bgn::rref$s	#wdb		; Receive a reference to a region.
 	astx$s
 1$:	mov	wdb+w.nrid,rdb+r.gid	; Save RegionID.	
 	mov	wdb+w.nbas,r0	; Mapping address => R0.	
-	cmp	ht.rid(r0),reqid; Is request processing allowed?	
+	cmp	h.rqid(r0),reqid; Is request processing allowed?	
 	bne	2$		; No.	
-	inc	ht.dir(r0)	; Mark region dirty.	
+	inc	h.drty(r0)	; Mark region dirty.	
 	ctxuse	r0		; Output to the received region.	
 	mov	@sp,r0		; Actual handler addr => R0.	
 	call	@r0		; Build a response.	
 	ctxrdy			; Done.	
 2$:	dtrg$s	#rdb		; Detach the region.	
-	br	ht$bgn		; Is there any work left?	
-rcverr:	die	<HT$BGN: Cannot receive by reference>
+	br	.htbgn		; Is there any work left?	
+rcverr:	die	<.htBGN: Cannot receive by reference>
 
-ht$ast::craw$s	#wdb		; Create an address window	
-	ordie	<HT$AST: Cannot create window>
+.htast::craw$s	#wdb		; Create an address window	
+	ordie	<.htAST: Cannot create window>
 	bis	#ws.map,wdb+w.nsts	; Map on RREF.	
 	srra$s	(sp)+		; Handler was in stack.	
-	ordie	<HT$AST: Cannot set AST>
+	ordie	<.htAST: Cannot set AST>
 1$:	spnd$s			; Wait for requests.	
 	br	1$
 
-ht$arg::save05
+.htarg::save05
 	mov	sarg+2(sp),r3	; Argument name => R3.	
 	mov	sarg+4(sp),r1	; Context => R1.
-	add	#ht.url,r1	; R1 points at URL.
+	add	#h.url,r1	; R1 points at URL.
 	movb	#'?,r2		; Look for query arguments.
 1$:	call	fndchr		; Delimiter found?
 	bcs	10$		; No.	
@@ -254,14 +262,14 @@ ht$arg::save05
 10$:	sec			; No such argument.	
 	return
 
-ht$ftr::save02
+.htftr::save02
 	mov	sarg(sp),-(sp)
 	mov	#ftrtxt,-(sp)
-	call	ht$res
+	call	.htres
 	add	#4,sp
 	return
 
-ht$req::mov	reqid,2(sp)
+.htreq::mov	reqid,2(sp)
 	return
 
 	.sbttl	String utilities
