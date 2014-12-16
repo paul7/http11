@@ -7,11 +7,13 @@
 ;; Offsets in context definition.
 .	=	0
 h.clid:	.blkw	1		; Client descriptor in the server.
+h.size:	.blkw	1		; Response length.	
 h.rqid:	.blkw	1		; RequestID.
+h.done:	.blkw	1		; Last chunk.
+h.efn:	.blkw	1		; Event flag number.
 h.drty:	.blkw	1		; Dirty flag.	
 h.url:	.blkb	256.		; Requested URL.
 h.usiz	=	. - h.url	; Maximum URL size.
-h.size:	.blkw	1		; Response length.	
 h.resp:				; Response string.
 h.max	=	20000		; Single APR.	
 	.endc
@@ -25,6 +27,7 @@ c.rgid:	.blkw	1
 c.lun:	.blkw	1
 c.iost:	.blkw	2
 c.rqid:	.blkw	1
+c.efn:	.blkw	1
 c.stat:	.blkw	1
 c.age:	.blkw	1
 c.tmp:

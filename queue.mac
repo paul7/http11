@@ -1,0 +1,94 @@
+	.title	queue
+	.ident	/X00.20/
+	.mcall	save05
+
+	.macro	mkq	eltsiz,size=20
+	.word	0
+	.word	0
+	.word	eltsiz
+	.word	size*eltsiz
+	.blkb	size*eltsiz
+	.even
+	.endm
+
+	.macro	enq	queue,place,?bad,?out
+	mov	queue,-(sp)
+	mov	place,-(sp)
+	call	.enq
+	bcs	bad
+	add	#4,sp
+	clc
+	br	out
+bad:	add	#4,sp
+	sec
+out:
+	.endm
+
+	.macro	deq	queue,place,?bad,?out
+	mov	queue,-(sp)
+	mov	place,-(sp)
+	call	.deq
+	bcs	bad
+	add	#4,sp
+	clc
+	br	out
+bad:	add	#4,sp
+	sec
+out:
+	.endm
+
+	.asect
+.	=	0
+q.read:	.blkw	1
+q.writ:	.blkw	1
+q.elts:	.blkw	1
+q.size:	.blkw	1
+q.data	=	.
+
+	.psect	quecod,i,ro
+.enq::	save05
+	mov	sarg+2(sp),r0
+	mov	q.writ(r0),r1
+	add	q.elts(r0),r1
+	cmp	r1,q.size(r0)
+	blt	1$
+	sub	q.size(r0),r1
+1$:	cmp	q.read(r0),r1
+	bne	2$
+	sec
+	return
+2$:	mov	r1,r3
+	mov	q.writ(r0),r1
+	add	r0,r1
+	add	#q.data,r1
+	mov	q.elts(r0),r2
+	mov	sarg(sp),r4
+3$:	movb	(r4)+,(r1)+
+	sob	r2,3$
+	mov	r3,q.writ(r0)
+	clc
+	return
+
+.deq::	save05
+	mov	sarg+2(sp),r0
+	cmp	q.read(r0),q.writ(r0)
+	bne	1$
+	sec
+	return
+1$:	mov	q.read(r0),r1
+	add	r0,r1
+	add	#q.data,r1
+	mov	q.elts(r0),r2
+	mov	sarg(sp),r3
+2$:	movb	(r1)+,(r3)+
+	sob	r2,2$
+	mov	q.read(r0),r1
+	add	q.elts(r0),r1
+	cmp	r1,q.size(r0)
+	blt	3$
+	sub	q.size(r0),r1
+3$:	mov	r1,q.read(r0)
+	clc	
+	return
+
+	.end

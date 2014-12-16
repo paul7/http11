@@ -3,7 +3,7 @@
 	.mcall	crrg$s,craw$s,sref$s,qiow$s,qio$s
 	.mcall	astx$s,dsar$s,enar$s,srda$s,rcvd$s
 	.mcall	spnd$s,alun$s,map$s,mrkt$s,gtim$s
-	.mcall	dtrg$s
+	.mcall	dtrg$s,setf$s,decl$s
 	.mcall	rdbbk$,wdbbk$
 	.mcall	ordie,die,dielun
 	.mcall	ctxini,ctxuse,ctx2st
@@ -23,6 +23,7 @@ conefn	=	2
 clinum	=	20
 quesiz	=	20
 blun	=	4
+befn	=	65.
 
 sopt	=	21
 tmout	=	30.
@@ -33,6 +34,7 @@ wtchps	=	5
 cl.free	=	0
 cl.read =	1
 cl.work	=	2
+cl.hdr	=	40000
 cl.err	=	100000
 
 	useoff	context
@@ -213,7 +215,7 @@ watchd::tst	(sp)+
 	beq	10$
 	inc	c.age(r1)
 	cmp	#maxage,c.age(r1)
-	bgt	10$
+	bhi	10$
 	qiow$s	#io.cln,c.lun(r1),#conefn
 	call	mapcli
 	mov	wdb+w.nbas,r2
@@ -275,7 +277,7 @@ reqrdy::mov	(sp)+,r1
 3$:	mov	r1,r2
 	mov	r3,r1
 	call	mapcli
-	ctxini	wdb+w.nbas,r1,r2,c.rqid(r1)
+	ctxini	wdb+w.nbas,r1,r2
 	sref$s	r0,#wdb,#1
 	or503
 10$:	astx$s
@@ -291,13 +293,16 @@ rsprdy::rcvd$s	,#rspbuf
 	mov	wdb+w.nbas,r0
 	cmp	h.rqid(r0),c.rqid(r1)
 	bne	rsprdy
+	bit	#cl.hdr,c.stat(r1)
+	bne	3$
+	bis	#cl.hdr,c.stat(r1)
 	mov	r1,r4
 	add	#c.iost,r4
-	ctxuse	r0
 	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<#hdr200,#hdl200>
 	orclos
 	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<#hdrend,#hdlend>
 	orclos	
+3$:	ctxuse	r0
 	mov	r1,-(sp)
 	ctx2st
 	mov	r0,-(sp)
@@ -305,9 +310,12 @@ rsprdy::rcvd$s	,#rspbuf
 	call	chunk
 	add	#4,sp
 	mov	(sp)+,r1
+	mov	wdb+w.nbas,r0
+	tst	h.done(r0)
+	beq	10$
 	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspdon,<#lstchn,#lstchl>
 	orclos
-	jmp	rsprdy
+10$:	jmp	rsprdy
 
 chunk::	save05
 	mov	sarg+4(sp),r0
@@ -328,14 +336,25 @@ chunk::	save05
 	mov	sarg+2(sp),r3
 	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<r3,r2>
 	orclos
-	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspast,<#chnend,#chnenl>
+	qio$s	#io.wlb,c.lun(r1),#conefn,,r4,#rspnxt,<#chnend,#chnenl>
 	orclos
 	return
+
+rspnxt::mov	(sp)+,r1
+	mov	r1,r2
+	sub	#c.iost,r1
+	ordie	,r2
+	call	mapcli
+	mov	wdb+w.nbas,r2
+	clr	h.size(r2)
+	setf$s	c.efn(r1)
+	decl$s
+	astx$s
 
 rspdon::mov	(sp)+,r1
 	mov	r1,r2
 	sub	#c.iost,r1
-	orclos	,r2
+	setf$s	c.efn(r1)
 	jmp	close
 rcverr:	die	<Cannot receive data>
 
@@ -391,11 +410,13 @@ fndhnd::save02
 inicli::save05
 	mov	#clinum,r1
 	mov	#client,r0
-	mov	#blun,r2
 	mov	#clirdb,r3
-1$:	mov	r2,c.lun(r0)
-	alun$s	r2,#"TC
+1$:	mov	#clinum,c.lun(r0)
+	add	#blun,c.lun(r0)
+	alun$s	c.lun(r0),#"TC
 	bcs	lunerr
+	mov	#clinum,c.efn(r0)
+	add	#befn,c.efn(r0)
 	clr	c.rqid(r0)
 	clr	c.age(r0)
 	mov	r3,c.rgid(r0)
@@ -406,7 +427,6 @@ inicli::save05
 2$:	movb	(r4)+,(r3)+
 	sob	r5,2$
 	add	#c.size,r0
-	inc	r2
 	sob	r1,1$
 	mov	#clirdb,r0
 	mov	#clinum,r1
@@ -446,6 +466,7 @@ getcli::mov	topcli,r1
 	add	#1,reqid	; Set Carry on overflow!	
 	adc	reqid
 	mov	reqid,c.rqid(r1)
+	mov	#cl.free,c.stat(r1)
 	mov	c.next(r1),topcli
 1$:	return
 
