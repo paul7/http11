@@ -7,6 +7,7 @@
 	.mcall	ordie,die
 	.mcall	save02,save05
 	.mcall	useoff
+	.mcall	mkq,enq,deq
 
 	useoff	context
 	useoff	client
@@ -93,14 +94,6 @@ $$$tag	=	.
 	mov	max,-(sp)
 	call	.htmsg
 	add	#10,sp
-	.endm
-
-;; Prepare to receive requests from the server.
-;; Should be the last statement in the initialization.
-;; AST routine is at AST
-	.macro	htmast	ast
-	mov	ast,-(sp)
-	jmp	.htast
 	.endm
 
 ;; Prepare to process a request.
@@ -222,7 +215,23 @@ sdater:	die	<SDAT>
 wtserr:	die	<WTS>
 clferr:	die	<CLEF>
 
-.htbgn::rref$s	#wdb		; Receive a reference to a region.	
+.htbgn::craw$s	#wdb
+	ordie	<.HTBGN: Cannot create window>
+	srra$s	#.htast
+	ordie	<.HTBGN: Cannot set AST>
+htloop:	deq	#htque,#wwdb
+	bcc	1$
+	spnd$s
+1$:	map$s	#wwdb
+	ordie	<.HTBGN: Cannot map>
+	mov	wdb+w.nrid,rdb+r.gid
+	mov	wdb+w.nbas,r0
+	cmp	h.rqid(r0),reqid
+	
+
+
+
+	rref$s	#wdb		; Receive a reference to a region.	
 	bcc	1$		; Success?	
 	cmp	#ie.its,$dsw	; No. Emtpy queue?	
 	bne	rcverr		;  No. Bad.	

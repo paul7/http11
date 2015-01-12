@@ -255,7 +255,11 @@ reqrdy::mov	(sp)+,r1
 	mov	r1,r2
 	sub	#c.iost,r1
 	orclos	,r2
-	beq	10$
+	qiow$s	#io.fls,c.lun(r1),#conefn
+	orclos
+;	qiow$s	#io.can,c.lun(r1),#conefn
+;	orclos
+;	beq	10$
 	mov	2(r2),r2	; Number of bytes read => R2.
 	mov	r1,r3
 	add	#c.rqst,r1
