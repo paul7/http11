@@ -7,8 +7,8 @@
 
 	.psect	html,d,rw
 about::	.ascii	|<h1>Welcome to HTTP/11</h1>|
-	.ascii	|<div>This is a web server running under RSX-11M-PLUS|
-	.ascii	| on a PDP-11. |
+	.ascii	|<div>This is an asynchronous web server running under|
+	.ascii	| RSX-11M-PLUS on a PDP-11. |
 	.ascii	|It is written by Paul A. Anokhin.</div>|
 	.ascii	|<div>Source is <a href=https://github.com/paul7/http11>|
 	.asciz	|here</a>.</div>|

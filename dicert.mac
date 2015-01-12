@@ -1,7 +1,7 @@
 	.title	dice
 	.ident 	/V01.00/
 	.mcall	htmbgn,htmast,respnd
-	.mcall	getarg,htmsg
+	.mcall	getarg,htmsg,footer
 	.mcall	gtim$s
 
 	.psect	tmp,d,rw
@@ -34,6 +34,7 @@ rqst:	htmbgn
 	htmsg	#qfmt,#qaddr
 	respnd	tbl(r0)
 	respnd	#back
+	footer
 	return
 noarg:	respnd #qform
 	return
