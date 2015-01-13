@@ -3,26 +3,25 @@
 
 	.mcall	htmast,htmbgn
 	.mcall	respnd,htmsg,footer,getreq
-	.mcall	useoff
+
+	.include /offset.mac/
 
 	.psect	html,d,rw
 about::	.ascii	|<h1>Welcome to HTTP/11</h1>|
-	.ascii	|<div>This is an asynchronous web server running under|
-	.ascii	| RSX-11M-PLUS on a PDP-11. |
-	.ascii	|It is written by Paul A. Anokhin.</div>|
+	.ascii	|<div>This is a web server running on a PDP-11. |
+	.ascii	|It is written in MACRO-11 by Paul A. Anokhin.</div>|
 	.ascii	|<div>Source is <a href=https://github.com/paul7/http11>|
 	.asciz	|here</a>.</div>|
 
-visitr::.ascii	|<div>You're a visitor #%D since the last restart.</div>|
-	.ascii	|<div>RequestID = %D</div>|
-	.asciz	|<div>ClientID = %P</div>|
+visitr::.asciz	|<div>You're a visitor #%D since the last restart.</div>|
+url::	.asciz	|<div>URL was: %I</div><div>Length = %D</div>|
+req::	.asciz	|<div>RequestID = %D</div>|
 
 	.even
 visnum::.word	0
+urladr::.word	0
+urllen::.word	0
 reqid::	.word	0
-cliid::	.word	0
-
-	useoff	context
 
 	.psect	code,i,ro
 start::	htmast	#rqst
@@ -30,10 +29,17 @@ start::	htmast	#rqst
 rqst::	htmbgn
 	inc	visnum
 	respnd	#about
-	getreq	reqid
-	mov	$$$ctx,r0
-	mov	h.clid(r0),cliid
 	htmsg	#visitr,#visnum
+	mov	$$$ctx,r0
+	add	#ht.url,r0
+	mov	r0,urladr
+1$:	tstb	(r0)+
+	bne	1$
+	sub	urladr,r0
+	mov	r0,urllen
+	htmsg	#url,#urladr
+	getreq	reqid
+	htmsg	#req,#reqid
 	footer
 	return
 

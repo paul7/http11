@@ -2,24 +2,23 @@
 	.ident	/X00.50/
 	.mcall	qiow$s,exit$s,rref$s,craw$s,sdat$s
 	.mcall	astx$s,spnd$s,srra$s,umap$s,dtrg$s
-	.mcall	clef$s,wtse$s
 	.mcall	rdbbk$,wdbbk$
 	.mcall	ordie,die
 	.mcall	save02,save05
 	.mcall	useoff
 
 	useoff	context
-	useoff	client
 
 ;; Initialize a HTML context.
 ;; Client buffer is at CLI.
 ;; Place context at LOC.
-	.macro	ctxini	loc,cli,url
+	.macro	ctxini	loc,cli,url,rid
+	mov	rid,-(sp)
 	mov	url,-(sp)
 	mov	cli,-(sp)
 	mov	loc,-(sp)
 	call	.htini
-	add	#6,sp
+	add	#10,sp
 	.endm
 
 ;; Begin using existing HTML context.
@@ -167,10 +166,8 @@ ftrtxt:	.asciz	|<p><small>Powered by MACRO-11</small></p>|
 .htini::save05
 	mov	sarg(sp),r0	; Context => R0.	
 	clr	h.size(r0)	; Response size is 0.	
-	mov	sarg+2(sp),r1
-	mov	r1,h.clid(r0)	; Save client descriptor.	
-	mov	c.rqid(r1),h.rqid(r0)	; Save RequestID.	
-	mov	c.efn(r1),h.efn(r0)	; Save EFN.
+	mov	sarg+2(sp),h.clid(r0)	; Save client descriptor.	
+	mov	sarg+6(sp),h.rqid(r0)	; Save RequestID.	
 	clr	h.drty(r0)	; Region is not dirty.	
 	add	#h.url,r0	; Request URL buffer => R0.	
 	mov	#h.usiz-1,r1	; Buffer size => R1.	
@@ -185,20 +182,20 @@ ftrtxt:	.asciz	|<p><small>Powered by MACRO-11</small></p>|
 
 .htrdy::save02
 	mov	sarg(sp),r0	; Context => R0.	
-	mov	#1,h.done(r0)	; Last chunk.
 	add	#h.clid,r0	; Client descriptor => R0.	
 	sdat$s	#rcvbuf,r0	; Inform server that client at R0 is ready.	
 	ordie	<.htRDY: cannot send data>
 	return
 
 .htmsg::save02
-1$:	mov	sarg+6(sp),r0	; Context => R0.	
+	mov	sarg+6(sp),r0	; Context => R0.	
 	mov	h.size(r0),r1
 	add	sarg(sp),r1
 	add	#h.resp,r1
 	cmp	#h.max,r1
-	ble	2$
-	mov	sarg+2(sp),r2	; Parameter block => R2.	
+	bgt	1$
+	jmp	2$
+1$:	mov	sarg+2(sp),r2	; Parameter block => R2.	
 	mov	sarg+4(sp),r1	; Format => R1.	
 	add	h.size(r0),r0
 	add	#h.resp,r0	; First unused byte in context => R0.	
@@ -207,20 +204,7 @@ ftrtxt:	.asciz	|<p><small>Powered by MACRO-11</small></p>|
 	sub	#h.resp,r0
 	sub	r1,r0		; New response length => R0.	
 	mov	r0,h.size(r1)	; Save it.	
-	return
-2$:	clr	h.done(r0)
-	clef$s	h.efn(r0)
-	bcs	clferr
-	mov	r0,r2
-	add	#h.clid,r2
-	sdat$s	#rcvbuf,r2
-	bcs	sdater
-	wtse$s	h.efn(r0)
-	bcs	wtserr
-	br	1$
-sdater:	die	<SDAT>
-wtserr:	die	<WTS>
-clferr:	die	<CLEF>
+2$:	return
 
 .htbgn::rref$s	#wdb		; Receive a reference to a region.	
 	bcc	1$		; Success?	
