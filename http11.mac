@@ -79,12 +79,15 @@ rsp'code::
 	astx$s
 	.restore
 
-	.macro	or'code	cli,iosb,?ok
-	bcc	ok
+	.macro	or'code	cli,iosb,?ok,?bad
 	.if nb iosb
+	bcs	bad
 	tstb	iosb
 	bpl	ok
+	.iff
+	bcc	ok
 	.endc
+bad:
 	.if nb cli
 	mov	cli,r1
 	.endc
@@ -93,12 +96,27 @@ ok:
 	.endm	or'code
 	.endm	deferr	
 
-	.macro	orclos	cli,iosb,?ok
-	bcc	ok
-	.if nb iosb
+	.macro	orjmp	label,iosb,?ok,?bad
+	.if	nb	iosb
+	bcs	bad
 	tstb	iosb
 	bpl	ok
+	.iff
+	bcc	ok
 	.endc
+bad:	jmp	label
+ok:
+	.endm
+
+	.macro	orclos	cli,iosb,?ok,?bad
+	.if nb iosb
+	bcs	bad
+	tstb	iosb
+	bpl	ok
+	.iff
+	bcc	ok
+	.endc
+bad:
 	.if nb cli
 	mov	cli,r1
 	.endc
@@ -135,6 +153,7 @@ reqbl	=	. - reqbuf
 iosb:	.blkw	2
 date:	.blkw	8.
 timer:	.blkw	1
+ep:	.blkw	3
 
 	.psect	handlr,d,rw
 hndtbl:	.word	0
@@ -239,7 +258,9 @@ conrdy::tst	(sp)+
 	bne	1$
 	qiow$s	#io.rej,#tclun,#tcefn,,#iosb
 	br	2$
-1$:	qiow$s	#io.cep,c.lun(r1),#conefn,,#iosb,,<#port>
+1$:	qiow$s	#io.rvb,#tclun,#tcefn,,#iosb,,<#ep,#6>
+	orjmp	2$
+	qiow$s	#io.cep,c.lun(r1),#conefn,,#iosb,,<#port,#ep>
 	orclos	,iosb
 	qiow$s	#io.acc,c.lun(r1),#conefn,,#iosb,,<0,#sopt,#tmout>
 	orclos	,iosb
