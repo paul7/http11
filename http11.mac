@@ -24,7 +24,7 @@ clinum	=	20
 quesiz	=	20
 blun	=	4
 
-sopt	=	21
+sopt	=	61		; Was 21	
 tmout	=	30.
 
 maxage	=	5
@@ -237,7 +237,11 @@ conrdy::tst	(sp)+
 	bne	1$
 	qiow$s	#io.rej,#tclun,#tcefn,,#iosb
 	br	2$
-1$:	qiow$s	#io.cep,c.lun(r1),#conefn,,#iosb,,<#port>
+1$:	;qiow$s	#io.rvb,#tclun,#tcefn,,#iosb,,<#ep,#6>
+	;orjmp	2$
+	;qiow$s	#io.cep,c.lun(r1),#conefn,,#iosb,,<#port,#ep>
+	;orclos	,iosb
+	qiow$s	#io.scr,c.lun(r1),#conefn,,#iosb,,<#port>
 	orclos	,iosb
 	qiow$s	#io.acc,c.lun(r1),#conefn,,#iosb,,<0,#sopt,#tmout>
 	orclos	,iosb
